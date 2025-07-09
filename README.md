@@ -16,7 +16,7 @@ Hệ thống đánh giá CV tự động sử dụng AI với Vintern OCR và La
 ### 1. Clone repository
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/nguyentuongbachhy/ResumAI.git
 cd cv-evaluator-ai
 ```
 
