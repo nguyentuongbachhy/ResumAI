@@ -180,14 +180,15 @@ class DatabaseManager:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
+                # Fixed: Qualify column names to avoid ambiguity
                 cursor.execute('''
-                    SELECT session_id, job_description, required_candidates, created_at,
+                    SELECT s.session_id, s.job_description, s.required_candidates, s.created_at,
                            COUNT(DISTINCT c.id) as total_cvs,
                            COUNT(DISTINCT e.id) as total_evaluations
                     FROM sessions s
                     LEFT JOIN cvs c ON s.session_id = c.session_id
                     LEFT JOIN evaluations e ON s.session_id = e.session_id
-                    GROUP BY s.session_id
+                    GROUP BY s.session_id, s.job_description, s.required_candidates, s.created_at
                     ORDER BY s.created_at DESC
                 ''')
                 rows = cursor.fetchall()

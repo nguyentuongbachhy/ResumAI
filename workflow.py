@@ -56,24 +56,46 @@ class CVEvaluationWorkflow:
                 file_type = file_info["type"]
                 filename = file_info["filename"]
                 
+                logger.info(f"Processing file: {filename} ({file_type})")
+                
                 if file_type == "application/pdf":
                     # Convert PDF to images
-                    images = self._pdf_to_images(file_path)
-                    for i, image_path in enumerate(images):
+                    try:
+                        images = self._pdf_to_images(file_path)
+                        for i, image_path in enumerate(images):
+                            processed_files.append({
+                                "filename": f"{Path(filename).stem}_page_{i+1}.jpg",
+                                "path": image_path,
+                                "type": "image/jpeg",
+                                "original_filename": filename,
+                                "page": i + 1
+                            })
+                            
+                            # Add to database
+                            cv_id = db_manager.add_cv(
+                                state["session_id"],
+                                f"{Path(filename).stem}_page_{i+1}.jpg",
+                                image_path,
+                                "image/jpeg"
+                            )
+                            processed_files[-1]["cv_id"] = cv_id
+                    except Exception as e:
+                        logger.error(f"Error processing PDF {filename}: {e}")
+                        # Still add the original file for processing
                         processed_files.append({
-                            "filename": f"{filename}_page_{i+1}.jpg",
-                            "path": image_path,
-                            "type": "image/jpeg",
+                            "filename": filename,
+                            "path": file_path,
+                            "type": file_type,
                             "original_filename": filename,
-                            "page": i + 1
+                            "page": 1,
+                            "error": f"PDF processing failed: {str(e)}"
                         })
                         
-                        # Add to database
                         cv_id = db_manager.add_cv(
                             state["session_id"],
-                            f"{filename}_page_{i+1}.jpg",
-                            image_path,
-                            "image/jpeg"
+                            filename,
+                            file_path,
+                            file_type
                         )
                         processed_files[-1]["cv_id"] = cv_id
                         
@@ -95,6 +117,8 @@ class CVEvaluationWorkflow:
                         file_type
                     )
                     processed_files[-1]["cv_id"] = cv_id
+                else:
+                    logger.warning(f"Unsupported file type: {file_type} for {filename}")
             
             state["processed_files"] = processed_files
             logger.info(f"Processed {len(processed_files)} files")
@@ -124,33 +148,66 @@ class CVEvaluationWorkflow:
             
             Trả lời bằng tiếng Việt, định dạng rõ ràng và chi tiết."""
             
-            # Try batch processing first (more efficient)
-            file_paths = [file_info["path"] for file_info in state["processed_files"]]
+            # Filter out files with errors
+            valid_files = [f for f in state["processed_files"] if "error" not in f]
+            error_files = [f for f in state["processed_files"] if "error" in f]
             
-            if len(file_paths) > 1:
-                logger.info(f"Attempting batch processing for {len(file_paths)} files")
+            # Handle error files
+            for file_info in error_files:
+                cv_data = {
+                    "cv_id": file_info["cv_id"],
+                    "filename": file_info["filename"],
+                    "original_filename": file_info["original_filename"],
+                    "page": file_info["page"],
+                    "extracted_info": f"Error: {file_info.get('error', 'Unknown error')}"
+                }
+                extracted_cvs.append(cv_data)
+                
+                # Update database
+                db_manager.update_cv_info(file_info["cv_id"], cv_data["extracted_info"])
+            
+            if not valid_files:
+                state["extracted_cvs"] = extracted_cvs
+                logger.warning("No valid files to process")
+                return state
+            
+            # Try batch processing first (more efficient) but only for images
+            image_files = [f for f in valid_files if f["type"].startswith("image/")]
+            
+            if len(image_files) > 1:
+                logger.info(f"Attempting batch processing for {len(image_files)} image files")
                 try:
+                    file_paths = [file_info["path"] for file_info in image_files]
                     batch_results = vintern_processor.batch_extract(file_paths, question)
                     
-                    if batch_results:
+                    if batch_results and isinstance(batch_results, dict):
                         # Process batch results
-                        for file_info in state["processed_files"]:
+                        batch_processed = set()
+                        
+                        for file_info in image_files:
                             filename = file_info["filename"]
                             file_path = file_info["path"]
                             
-                            # Try to match filename in batch results
-                            extracted_info = batch_results.get(filename)
+                            # Try multiple ways to match the result
+                            extracted_info = None
                             
-                            # If not found by filename, try by path basename
-                            if not extracted_info:
-                                path_name = Path(file_path).name
-                                extracted_info = batch_results.get(path_name)
+                            # 1. Try exact filename match
+                            if filename in batch_results:
+                                extracted_info = batch_results[filename]
+                            # 2. Try path basename match
+                            elif Path(file_path).name in batch_results:
+                                extracted_info = batch_results[Path(file_path).name]
+                            # 3. Try original filename variations
+                            elif file_info["original_filename"] in batch_results:
+                                extracted_info = batch_results[file_info["original_filename"]]
+                            # 4. Try finding by partial match
+                            else:
+                                for key, value in batch_results.items():
+                                    if filename in key or key in filename:
+                                        extracted_info = value
+                                        break
                             
-                            # If still not found, try any available result
-                            if not extracted_info and batch_results:
-                                extracted_info = list(batch_results.values())[0] if len(batch_results) > 0 else ""
-                            
-                            if extracted_info:
+                            if extracted_info and not extracted_info.startswith('Error:'):
                                 cv_data = {
                                     "cv_id": file_info["cv_id"],
                                     "filename": filename,
@@ -160,51 +217,69 @@ class CVEvaluationWorkflow:
                                 }
                                 
                                 extracted_cvs.append(cv_data)
+                                batch_processed.add(filename)
                                 
                                 # Update database
                                 db_manager.update_cv_info(file_info["cv_id"], extracted_info)
                                 
                                 logger.info(f"Batch extracted info for {filename}")
                             else:
-                                logger.warning(f"No batch result found for {filename}")
+                                logger.warning(f"No valid batch result found for {filename}")
                         
-                        # If we got all results from batch, we're done
-                        if len(extracted_cvs) == len(state["processed_files"]):
-                            logger.info("Batch processing completed successfully")
-                        else:
-                            logger.warning("Batch processing incomplete, falling back to individual processing")
-                            extracted_cvs = []  # Reset and try individual processing
+                        # Remove successfully processed files from the list for individual processing
+                        valid_files = [f for f in valid_files if f["filename"] not in batch_processed]
+                        
+                        logger.info(f"Batch processing completed for {len(batch_processed)} files")
                         
                 except Exception as e:
                     logger.warning(f"Batch processing error: {e}, falling back to individual processing")
-                    extracted_cvs = []  # Reset and try individual processing
             
-            # Individual processing (fallback or for single files)
-            if not extracted_cvs:
-                for file_info in state["processed_files"]:
+            # Individual processing (fallback or for remaining files)
+            if valid_files:
+                logger.info(f"Individual processing for {len(valid_files)} files")
+                
+                for file_info in valid_files:
                     logger.info(f"Individual processing {file_info['filename']}")
                     
-                    extracted_info = vintern_processor.extract_info(
-                        file_info["path"],
-                        question=question
-                    )
-                    
-                    logger.debug(f"Extracted info for {file_info['filename']}: {extracted_info[:200]}...")
-                    
-                    cv_data = {
-                        "cv_id": file_info["cv_id"],
-                        "filename": file_info["filename"],
-                        "original_filename": file_info["original_filename"],
-                        "page": file_info["page"],
-                        "extracted_info": extracted_info
-                    }
-                    
-                    extracted_cvs.append(cv_data)
-                    
-                    # Update database
-                    db_manager.update_cv_info(file_info["cv_id"], extracted_info)
-                    
-                    logger.info(f"Individual extracted info for {file_info['filename']}")
+                    try:
+                        extracted_info = vintern_processor.extract_info(
+                            file_info["path"],
+                            question=question
+                        )
+                        
+                        logger.debug(f"Extracted info for {file_info['filename']}: {extracted_info[:200]}...")
+                        
+                        cv_data = {
+                            "cv_id": file_info["cv_id"],
+                            "filename": file_info["filename"],
+                            "original_filename": file_info["original_filename"],
+                            "page": file_info["page"],
+                            "extracted_info": extracted_info
+                        }
+                        
+                        extracted_cvs.append(cv_data)
+                        
+                        # Update database
+                        db_manager.update_cv_info(file_info["cv_id"], extracted_info)
+                        
+                        logger.info(f"Individual extracted info for {file_info['filename']}")
+                        
+                    except Exception as e:
+                        logger.error(f"Error extracting info from {file_info['filename']}: {e}")
+                        
+                        error_info = f"Error: Failed to extract info - {str(e)}"
+                        cv_data = {
+                            "cv_id": file_info["cv_id"],
+                            "filename": file_info["filename"],
+                            "original_filename": file_info["original_filename"],
+                            "page": file_info["page"],
+                            "extracted_info": error_info
+                        }
+                        
+                        extracted_cvs.append(cv_data)
+                        
+                        # Update database
+                        db_manager.update_cv_info(file_info["cv_id"], error_info)
             
             state["extracted_cvs"] = extracted_cvs
             logger.info(f"Successfully extracted information from {len(extracted_cvs)} CVs")
@@ -221,25 +296,33 @@ class CVEvaluationWorkflow:
         evaluations = []
         
         try:
+            # Check if OpenAI API key is available
+            openai_api_key = os.getenv("OPENAI_API_KEY")
+            if not openai_api_key:
+                logger.error("OpenAI API key not found in environment variables")
+                state["error"] = "OpenAI API key not configured"
+                return state
+            
             # Initialize OpenAI client (new format for openai>=1.0.0)
             from openai import OpenAI
             
             client = OpenAI(
-                api_key=os.getenv("OPENAI_API_KEY")
+                api_key=openai_api_key
             )
             
             for cv_data in state["extracted_cvs"]:
                 logger.info(f"Evaluating {cv_data['filename']}")
                 
-                # Skip if no extracted info
-                if not cv_data['extracted_info'] or cv_data['extracted_info'].startswith('Error:'):
-                    logger.warning(f"Skipping {cv_data['filename']} - no valid extracted info")
+                # Skip if no extracted info or error in extraction
+                extracted_info = cv_data.get('extracted_info', '')
+                if not extracted_info or extracted_info.startswith('Error:') or extracted_info == "No content extracted":
+                    logger.warning(f"Skipping {cv_data['filename']} - no valid extracted info: {extracted_info}")
                     
                     evaluation_data = {
                         "cv_id": cv_data["cv_id"],
                         "filename": cv_data["filename"],
                         "score": 0.0,
-                        "evaluation_text": "Không thể trích xuất thông tin từ CV",
+                        "evaluation_text": "Không thể trích xuất thông tin từ CV hoặc có lỗi xảy ra",
                         "is_passed": False
                     }
                     
@@ -250,7 +333,7 @@ class CVEvaluationWorkflow:
                         state["session_id"],
                         cv_data["cv_id"],
                         0.0,
-                        "Không thể trích xuất thông tin từ CV",
+                        "Không thể trích xuất thông tin từ CV hoặc có lỗi xảy ra",
                         False
                     )
                     continue
@@ -263,7 +346,7 @@ class CVEvaluationWorkflow:
                 {state['job_description']}
 
                 THÔNG TIN CV:
-                {cv_data['extracted_info']}
+                {extracted_info}
 
                 Hãy đánh giá CV này theo các tiêu chí:
                 1. Phù hợp với yêu cầu công việc (40%)
@@ -285,28 +368,47 @@ class CVEvaluationWorkflow:
                 }}
                 """
                 
-                # Call OpenAI API (new format)
-                response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "Bạn là một chuyên gia tuyển dụng chuyên nghiệp."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    max_tokens=1500,
-                    temperature=0.3
-                )
-                
                 try:
-                    # Parse response
-                    evaluation_result = json.loads(response.choices[0].message.content)
-                    score = evaluation_result.get("score", 0)
-                    is_passed = evaluation_result.get("is_passed", False)
-                    evaluation_text = json.dumps(evaluation_result, ensure_ascii=False, indent=2)
+                    # Call OpenAI API (new format)
+                    response = client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=[
+                            {"role": "system", "content": "Bạn là một chuyên gia tuyển dụng chuyên nghiệp. Hãy trả lời chính xác theo định dạng JSON được yêu cầu."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        max_tokens=1500,
+                        temperature=0.3
+                    )
                     
-                except json.JSONDecodeError:
-                    # Fallback if JSON parsing fails
-                    evaluation_text = response.choices[0].message.content
-                    score = 5.0  # Default score
+                    # Parse response
+                    response_content = response.choices[0].message.content.strip()
+                    logger.debug(f"LLM response for {cv_data['filename']}: {response_content[:200]}...")
+                    
+                    try:
+                        # Try to extract JSON from response
+                        if response_content.startswith('```json'):
+                            json_start = response_content.find('{')
+                            json_end = response_content.rfind('}') + 1
+                            json_content = response_content[json_start:json_end]
+                        else:
+                            json_content = response_content
+                        
+                        evaluation_result = json.loads(json_content)
+                        score = float(evaluation_result.get("score", 0))
+                        is_passed = bool(evaluation_result.get("is_passed", False))
+                        evaluation_text = json.dumps(evaluation_result, ensure_ascii=False, indent=2)
+                        
+                    except (json.JSONDecodeError, ValueError) as e:
+                        logger.warning(f"Failed to parse JSON response for {cv_data['filename']}: {e}")
+                        # Fallback evaluation
+                        evaluation_text = response_content
+                        score = 5.0  # Default score
+                        is_passed = False
+                    
+                except Exception as e:
+                    logger.error(f"Error calling OpenAI API for {cv_data['filename']}: {e}")
+                    evaluation_text = f"Lỗi khi đánh giá: {str(e)}"
+                    score = 0.0
                     is_passed = False
                 
                 evaluation_data = {
@@ -374,7 +476,7 @@ class CVEvaluationWorkflow:
             }
             
             state["final_results"] = final_results
-            logger.info(f"Finalized results: {passed_count}/{total_cvs} passed")
+            logger.info(f"Finalized results: {passed_count}/{total_cvs} passed, avg score: {avg_score:.2f}")
             
         except Exception as e:
             logger.error(f"Error finalizing results: {e}")
@@ -401,7 +503,10 @@ class CVEvaluationWorkflow:
                 pix.save(image_path)
                 images.append(image_path)
                 
+                logger.debug(f"Converted page {page_num + 1} of {pdf_path} to {image_path}")
+                
             doc.close()
+            logger.info(f"Successfully converted PDF {pdf_path} to {len(images)} images")
             
         except Exception as e:
             logger.error(f"Error converting PDF to images: {e}")
