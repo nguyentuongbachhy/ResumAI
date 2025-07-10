@@ -56,6 +56,7 @@ st.markdown("""
     }
     
     .result-card {
+        color: black;
         background: #f8f9fa;
         padding: 1rem;
         border-radius: 8px;

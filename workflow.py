@@ -25,6 +25,23 @@ class CVEvaluationState(TypedDict):
 class CVEvaluationWorkflow:
     def __init__(self):
         self.graph = self._create_graph()
+        self.openai_client = None
+        self._init_openai_client()
+    
+    def _init_openai_client(self):
+        """Initialize OpenAI client"""
+        try:
+            openai_api_key = os.getenv("OPENAI_API_KEY")
+            if not openai_api_key:
+                logger.error("OpenAI API key not found in environment variables")
+                return
+            
+            from openai import OpenAI
+            self.openai_client = OpenAI(api_key=openai_api_key)
+            logger.info("OpenAI client initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Error initializing OpenAI client: {e}")
     
     def _create_graph(self) -> StateGraph:
         """Create the workflow graph"""
@@ -290,25 +307,51 @@ class CVEvaluationWorkflow:
             
         return state
     
+    def _stream_openai_response(self, messages: List[Dict], model: str = "gpt-4") -> str:
+        """Generate streaming response from OpenAI"""
+        try:
+            if not self.openai_client:
+                raise Exception("OpenAI client not initialized")
+            
+            logger.info(f"Starting streaming response with model: {model}")
+            
+            # Create streaming response
+            stream = self.openai_client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=1500,
+                temperature=0.3,
+                stream=True
+            )
+            
+            # Collect streamed response
+            full_response = ""
+            for chunk in stream:
+                if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
+                    delta = chunk.choices[0].delta
+                    if hasattr(delta, 'content') and delta.content:
+                        full_response += delta.content
+                        # Optional: log progress for debugging
+                        # logger.debug(f"Received chunk: {delta.content}")
+            
+            logger.info(f"Streaming completed. Total length: {len(full_response)} characters")
+            return full_response.strip()
+            
+        except Exception as e:
+            logger.error(f"Error in streaming response: {e}")
+            raise
+    
     def _evaluate_cvs(self, state: CVEvaluationState) -> CVEvaluationState:
-        """Evaluate CVs using LLM"""
-        logger.info("Evaluating CVs...")
+        """Evaluate CVs using OpenAI with streaming"""
+        logger.info("Evaluating CVs with OpenAI streaming...")
         evaluations = []
         
         try:
-            # Check if OpenAI API key is available
-            openai_api_key = os.getenv("OPENAI_API_KEY")
-            if not openai_api_key:
-                logger.error("OpenAI API key not found in environment variables")
-                state["error"] = "OpenAI API key not configured"
+            # Check if OpenAI client is available
+            if not self.openai_client:
+                logger.error("OpenAI client not initialized")
+                state["error"] = "OpenAI client not configured"
                 return state
-            
-            # Initialize OpenAI client (new format for openai>=1.0.0)
-            from openai import OpenAI
-            
-            client = OpenAI(
-                api_key=openai_api_key
-            )
             
             for cv_data in state["extracted_cvs"]:
                 logger.info(f"Evaluating {cv_data['filename']}")
@@ -368,21 +411,23 @@ class CVEvaluationWorkflow:
                 }}
                 """
                 
+                # Prepare messages for streaming
+                messages = [
+                    {
+                        "role": "system", 
+                        "content": "Bạn là một chuyên gia tuyển dụng chuyên nghiệp. Hãy trả lời chính xác theo định dạng JSON được yêu cầu."
+                    },
+                    {
+                        "role": "user", 
+                        "content": prompt
+                    }
+                ]
+                
                 try:
-                    # Call OpenAI API (new format)
-                    response = client.chat.completions.create(
-                        model="gpt-3.5-turbo",
-                        messages=[
-                            {"role": "system", "content": "Bạn là một chuyên gia tuyển dụng chuyên nghiệp. Hãy trả lời chính xác theo định dạng JSON được yêu cầu."},
-                            {"role": "user", "content": prompt}
-                        ],
-                        max_tokens=1500,
-                        temperature=0.3
-                    )
+                    # Use streaming response
+                    response_content = self._stream_openai_response(messages, model="gpt-4")
                     
-                    # Parse response
-                    response_content = response.choices[0].message.content.strip()
-                    logger.debug(f"LLM response for {cv_data['filename']}: {response_content[:200]}...")
+                    logger.debug(f"Streaming response for {cv_data['filename']}: {response_content[:200]}...")
                     
                     try:
                         # Try to extract JSON from response
@@ -433,7 +478,7 @@ class CVEvaluationWorkflow:
                 logger.info(f"Evaluated {cv_data['filename']} - Score: {score}")
             
             state["evaluations"] = evaluations
-            logger.info(f"Evaluated {len(evaluations)} CVs")
+            logger.info(f"Evaluated {len(evaluations)} CVs using streaming")
             
         except Exception as e:
             logger.error(f"Error evaluating CVs: {e}")
