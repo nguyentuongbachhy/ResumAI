@@ -3,3 +3,6 @@
 train
 models
 uploads
+
+structure.md
+get_structure.py
