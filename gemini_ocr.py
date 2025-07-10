@@ -34,6 +34,7 @@ class GeminiOCR:
             )
 
             extracted_text = response.text.strip()
+            logger.info(f"Response OCR: {extracted_text}")
             logger.info(f"Extracted text from {Path(image_path).name} successfully")
             return extracted_text
         except Exception as e:
@@ -67,6 +68,7 @@ class GeminiOCR:
                     pass
 
             full_text = "\n\n".join(extracted_texts)
+            logger.info(f"Response OCR: {full_text}")
             logger.info(f"Successfully extracted text from PDF {Path(pdf_path).name} via OCR")
             return full_text
 

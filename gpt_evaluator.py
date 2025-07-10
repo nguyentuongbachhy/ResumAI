@@ -77,18 +77,13 @@ class GPTEvaluator:
                 }
             ]
             
-            response = self.client.chat.completions.create(
+            response = self.client.responses.create(
                 model=self.model_name,
-                messages=messages,
-                max_tokens=1500,
-                temperature=0.3,
-                top_p=0.9,
-                frequency_penalty=0.1,
-                presence_penalty=0.1
+                input=messages
             )
             
-            result = response.choices[0].message.content.strip()
-            
+            result = response.output_text
+            logger.info(f"Response GPT: {result}")
             # Validate JSON response
             try:
                 json.loads(result)
