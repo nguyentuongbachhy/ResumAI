@@ -176,7 +176,7 @@ class DatabaseManager:
             return []
     
     def get_all_sessions(self) -> List[Dict]:
-        """Get all sessions"""
+        """Get all sessions with summary statistics"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -206,6 +206,63 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting all sessions: {e}")
             return []
+
+    def delete_session(self, session_id: str) -> bool:
+        """Delete a session and all related data"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Delete evaluations first (foreign key constraint)
+                cursor.execute('DELETE FROM evaluations WHERE session_id = ?', (session_id,))
+                
+                # Delete CVs
+                cursor.execute('DELETE FROM cvs WHERE session_id = ?', (session_id,))
+                
+                # Delete session
+                cursor.execute('DELETE FROM sessions WHERE session_id = ?', (session_id,))
+                
+                conn.commit()
+                logger.info(f"Deleted session {session_id} and all related data")
+                return True
+        except Exception as e:
+            logger.error(f"Error deleting session: {e}")
+            return False
+
+    def get_database_stats(self) -> Dict:
+        """Get database statistics"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Get total counts
+                cursor.execute('SELECT COUNT(*) FROM sessions')
+                total_sessions = cursor.fetchone()[0]
+                
+                cursor.execute('SELECT COUNT(*) FROM cvs')
+                total_cvs = cursor.fetchone()[0]
+                
+                cursor.execute('SELECT COUNT(*) FROM evaluations')
+                total_evaluations = cursor.fetchone()[0]
+                
+                # Get average score
+                cursor.execute('SELECT AVG(score) FROM evaluations')
+                avg_score = cursor.fetchone()[0] or 0
+                
+                return {
+                    'total_sessions': total_sessions,
+                    'total_cvs': total_cvs,
+                    'total_evaluations': total_evaluations,
+                    'average_score': round(avg_score, 2)
+                }
+        except Exception as e:
+            logger.error(f"Error getting database stats: {e}")
+            return {
+                'total_sessions': 0,
+                'total_cvs': 0,
+                'total_evaluations': 0,
+                'average_score': 0
+            }
 
 # Global database instance
 db_manager = DatabaseManager()

@@ -5,7 +5,7 @@ from typing import Dict, List, TypedDict, Any, Iterator
 from pathlib import Path
 from langgraph.graph import StateGraph, END
 from gemini_ocr import gemini_ocr
-from vietnamese_llama import get_vietnamese_llama
+from gpt_evaluator import get_gpt_evaluator  # Updated import
 from database import db_manager
 from openai import OpenAI
 
@@ -18,7 +18,7 @@ class CVEvaluationState(TypedDict):
     required_candidates: int
     uploaded_files: List[Dict[str, Any]]
     extracted_texts: List[Dict[str, Any]]
-    llama_evaluations: List[Dict[str, Any]]
+    gpt_evaluations: List[Dict[str, Any]]  # Updated name
     final_results: Dict[str, Any]
     error: str
 
@@ -50,14 +50,14 @@ class CVEvaluationWorkflow:
         # Add nodes
         workflow.add_node("process_files", self._process_files)
         workflow.add_node("extract_text", self._extract_text_with_gemini)
-        workflow.add_node("evaluate_with_llama", self._evaluate_with_vietnamese_llama)
+        workflow.add_node("evaluate_with_gpt", self._evaluate_with_gpt)  # Updated name
         workflow.add_node("finalize_results", self._finalize_results)
 
         # Add edges
         workflow.set_entry_point("process_files")
         workflow.add_edge("process_files", "extract_text")
-        workflow.add_edge("extract_text", "evaluate_with_llama")
-        workflow.add_edge("evaluate_with_llama", "finalize_results")
+        workflow.add_edge("extract_text", "evaluate_with_gpt")  # Updated name
+        workflow.add_edge("evaluate_with_gpt", "finalize_results")  # Updated name
         workflow.add_edge("finalize_results", END)
 
         return workflow.compile()
@@ -124,51 +124,53 @@ class CVEvaluationWorkflow:
 
         return state
 
-    def _evaluate_with_vietnamese_llama(self, state: CVEvaluationState) -> CVEvaluationState:
-        """Evaluate CVs using Vietnamese LLaMA"""
-        logger.info("Evaluating CVs with Vietnamese LLaMA...")
+    def _evaluate_with_gpt(self, state: CVEvaluationState) -> CVEvaluationState:
+        """Evaluate CVs using GPT-3.5-turbo"""
+        logger.info("Evaluating CVs with GPT-3.5-turbo...")
         evaluations = []
 
         try:
-            llama_model = get_vietnamese_llama()
+            gpt_evaluator = get_gpt_evaluator()
 
             for text_data in state["extracted_texts"]:
-                logger.info(f"Evaluating {text_data['filename']} with Vietnamese LLaMA")
+                logger.info(f"Evaluating {text_data['filename']} with GPT-3.5-turbo")
 
                 extracted_text = text_data.get('extracted_text', '')
                 if not extracted_text or extracted_text.startswith('Error'):
                     evaluation_data = {
                         "cv_id": text_data["cv_id"],
                         "filename": text_data["filename"],
-                        "llama_response": "Không thể trích xuất text từ CV",
+                        "gpt_response": "Không thể trích xuất text từ CV",
                         "parsed_evaluation": None
                     }
                     evaluations.append(evaluation_data)
                     continue
 
-                llama_response = llama_model.evaluate_cv(
+                # Use GPT to evaluate CV
+                gpt_response = gpt_evaluator.evaluate_cv(
                     state["job_description"],
                     extracted_text
                 )
 
-                parsed_evaluation = llama_model.extract_json_from_response(llama_response)
+                # Parse the evaluation result
+                parsed_evaluation = gpt_evaluator.extract_json_from_response(gpt_response)
 
                 evaluation_data = {
                     "cv_id": text_data["cv_id"],
                     "filename": text_data["filename"],
-                    "llama_response": llama_response,
+                    "gpt_response": gpt_response,
                     "parsed_evaluation": parsed_evaluation
                 }
 
                 evaluations.append(evaluation_data)
-                logger.info(f"Evaluated {text_data['filename']} with LLaMA")
+                logger.info(f"Evaluated {text_data['filename']} with GPT-3.5-turbo")
 
-            state["llama_evaluations"] = evaluations
-            logger.info(f"Completed LLaMA evaluation for {len(evaluations)} CVs")
+            state["gpt_evaluations"] = evaluations
+            logger.info(f"Completed GPT evaluation for {len(evaluations)} CVs")
 
         except Exception as e:
-            logger.error(f"Error evaluating with LLaMA: {e}")
-            state["error"] = f"Error evaluating with LLaMA: {str(e)}"
+            logger.error(f"Error evaluating with GPT: {e}")
+            state["error"] = f"Error evaluating with GPT: {str(e)}"
 
         return state
 
@@ -179,7 +181,7 @@ class CVEvaluationWorkflow:
         try:
             final_evaluations = []
 
-            for evaluation in state["llama_evaluations"]:
+            for evaluation in state["gpt_evaluations"]:
                 parsed_eval = evaluation.get("parsed_evaluation")
 
                 if parsed_eval:
@@ -189,7 +191,7 @@ class CVEvaluationWorkflow:
                 else:
                     score = 5.0
                     is_qualified = False
-                    evaluation_text = evaluation["llama_response"]
+                    evaluation_text = evaluation["gpt_response"]
 
                 final_evaluation = {
                     "cv_id": evaluation["cv_id"],
@@ -197,11 +199,12 @@ class CVEvaluationWorkflow:
                     "score": score,
                     "is_qualified": is_qualified,
                     "evaluation_text": evaluation_text,
-                    "llama_response": evaluation["llama_response"]
+                    "gpt_response": evaluation["gpt_response"]
                 }
 
                 final_evaluations.append(final_evaluation)
 
+                # Save to database
                 db_manager.add_evaluation(
                     state["session_id"],
                     evaluation["cv_id"],
@@ -210,8 +213,10 @@ class CVEvaluationWorkflow:
                     is_qualified
                 )
 
+            # Sort by score (highest first)
             final_evaluations.sort(key=lambda x: x["score"], reverse=True)
 
+            # Calculate statistics
             total_cvs = len(final_evaluations)
             qualified_cvs = sum(1 for e in final_evaluations if e["is_qualified"])
             avg_score = sum(e["score"] for e in final_evaluations) / total_cvs if total_cvs > 0 else 0
@@ -250,7 +255,7 @@ class CVEvaluationWorkflow:
                 required_candidates=required_candidates,
                 uploaded_files=uploaded_files,
                 extracted_texts=[],
-                llama_evaluations=[],
+                gpt_evaluations=[],
                 final_results={},
                 error=""
             )
@@ -286,7 +291,7 @@ class CVEvaluationWorkflow:
             }
 
             prompt = f"""
-                Bạn là một chuyên gia tuyển dụng. Dựa trên kết quả đánh giá CV, hãy tạo một báo cáo tóm tắt chuyên nghiệp.
+                Bạn là một chuyên gia tuyển dụng có kinh nghiệm 10+ năm. Dựa trên kết quả đánh giá CV từ GPT-3.5-turbo, hãy tạo một báo cáo tóm tắt chuyên nghiệp và chi tiết.
 
                 THÔNG TIN TUYỂN DỤNG:
                 {job_description}
@@ -300,24 +305,33 @@ class CVEvaluationWorkflow:
                 TOP ỨNG VIÊN:
                 {json.dumps(summary_data['top_candidates'], ensure_ascii=False, indent=2)}
 
-                Hãy viết một báo cáo tóm tắt bao gồm:
-                1. Nhận xét chung về chất lượng ứng viên
-                2. Phân tích điểm mạnh/yếu của pool ứng viên
-                3. Khuyến nghị cho quá trình tuyển dụng
-                4. Đánh giá chi tiết top 3 ứng viên
+                Hãy viết một báo cáo tóm tắt chi tiết bao gồm:
+                1. **Tóm tắt tổng quan**: Nhận xét chung về chất lượng pool ứng viên
+                2. **Phân tích chi tiết**: 
+                   - Điểm mạnh của pool ứng viên
+                   - Điểm yếu cần chú ý
+                   - Xu hướng chung về kỹ năng và kinh nghiệm
+                3. **Đánh giá top ứng viên**: Phân tích chi tiết từng ứng viên hàng đầu, luôn ghi điểm thật của ứng viên.
+                4. **Khuyến nghị tuyển dụng**: 
+                   - Ứng viên nên mời phỏng vấn
+                   - Câu hỏi phỏng vấn được đề xuất
+                   - Lưu ý đặc biệt cho từng ứng viên
+                5. **Kết luận và bước tiếp theo**
 
-                Viết một cách chuyên nghiệp, rõ ràng và hữu ích cho nhà tuyển dụng.
+                Viết một cách chuyên nghiệp, có cấu trúc rõ ràng, và cung cấp thông tin hữu ích để hỗ trợ quyết định tuyển dụng.
+                Sử dụng emoji phù hợp để làm báo cáo sinh động và dễ đọc.
+                Không tự bịa ra, phải dựa vào dữ liệu thực tế.
             """
 
             messages = [
-                {"role": "system", "content": "Bạn là một chuyên gia tuyển dụng chuyên nghiệp, có kinh nghiệm sâu về đánh giá và tuyển chọn nhân tài."},
+                {"role": "system", "content": "Bạn là một chuyên gia tuyển dụng hàng đầu với kinh nghiệm sâu rộng về đánh giá và tuyển chọn nhân tài. Bạn viết báo cáo một cách chuyên nghiệp, có cấu trúc và đầy đủ thông tin."},
                 {"role": "user", "content": prompt}
             ]
 
             stream = self.openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=messages,
-                max_tokens=2000,
+                max_tokens=2500,
                 temperature=0.7,
                 stream=True
             )
@@ -332,4 +346,5 @@ class CVEvaluationWorkflow:
             logger.error(f"Error generating final response: {e}")
             yield f"Error generating final response: {str(e)}"
 
+# Create global instance
 cv_workflow = CVEvaluationWorkflow()

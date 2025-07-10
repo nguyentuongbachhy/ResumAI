@@ -1,3 +1,17 @@
+# ================================================================================
+# VIETNAMESE LLAMA EVALUATOR - COMMENTED OUT
+# ================================================================================
+# 
+# This file has been commented out to use GPT-3.5-turbo instead for better
+# performance and reliability. The original LLaMA implementation is preserved
+# for reference and can be uncommented if needed in the future.
+#
+# Replaced by: gpt_evaluator.py
+# Date: [Current Date]
+# Reason: Better performance, faster response times, more reliable JSON parsing
+# ================================================================================
+
+"""
 import os
 import logging
 import torch
@@ -28,7 +42,7 @@ class VietnameseLlamaEvaluator:
         self._load_model()
 
     def _check_local_model_exists(self, model_path: str) -> bool:
-        """Check if local finetuned model exists"""
+        # Check if local finetuned model exists
         try:
             if os.path.isdir(model_path):
                 config_file = os.path.join(model_path, "config.json")
@@ -52,7 +66,7 @@ class VietnameseLlamaEvaluator:
             return False
 
     def _load_tokenizer(self, model_path: str, is_local: bool = False) -> bool:
-        """Load tokenizer with error handling"""
+        # Load tokenizer with error handling
         try:
             logger.info(f"Loading tokenizer from: {model_path}")
 
@@ -103,7 +117,7 @@ class VietnameseLlamaEvaluator:
             return False
 
     def _load_model_with_quantization(self, model_path: str, is_local: bool = False) -> bool:
-        """Load model with quantization"""
+        # Load model with quantization
         try:
             logger.info(f"Loading model from: {model_path}")
 
@@ -151,7 +165,7 @@ class VietnameseLlamaEvaluator:
             return False
 
     def _load_model(self):
-        """Load model with fallback strategy"""
+        # Load model with fallback strategy
         try:
             if self._check_local_model_exists(self.finetuned_model_path):
                 logger.info("Attempting to load local finetuned model...")
@@ -200,8 +214,8 @@ class VietnameseLlamaEvaluator:
             raise Exception(f"Cannot load Vietnamese LLaMA model: {e}")
 
     def _create_evaluation_prompt(self, job_description: str, cv_text: str) -> str:
-        """Create evaluation prompt for the model"""
-        prompt = dedent(f"""<s>[INST] Bạn là một chuyên gia tuyển dụng. Hãy đánh giá CV sau đây dựa trên yêu cầu công việc và trả về kết quả theo định dạng JSON.
+        # Create evaluation prompt for the model
+        prompt = dedent(f'''<s>[INST] Bạn là một chuyên gia tuyển dụng. Hãy đánh giá CV sau đây dựa trên yêu cầu công việc và trả về kết quả theo định dạng JSON.
             YÊU CẦU CÔNG VIỆC:
             {job_description}
             THÔNG TIN CV:
@@ -226,12 +240,12 @@ class VietnameseLlamaEvaluator:
                 "summary": "tóm tắt đánh giá ngắn gọn"
             }}
             Chỉ trả về JSON, không thêm giải thích khác. [/INST]
-        """)
+        ''')
 
         return prompt
 
     def evaluate_cv(self, job_description: str, cv_text: str) -> str:
-        """Evaluate CV and return result"""
+        # Evaluate CV and return result
         try:
             if not self.model or not self.tokenizer:
                 raise Exception("Model or tokenizer not loaded")
@@ -290,7 +304,7 @@ class VietnameseLlamaEvaluator:
             return f"Error during evaluation: {str(e)}"
 
     def extract_json_from_response(self, response: str) -> Optional[dict]:
-        """Extract JSON from model response"""
+        # Extract JSON from model response
         try:
             start_idx = response.find('{')
             end_idx = response.rfind('}') + 1
@@ -336,8 +350,31 @@ class VietnameseLlamaEvaluator:
 _vietnamese_llama = None
 
 def get_vietnamese_llama():
-    """Get Vietnamese LLaMA instance (singleton)"""
+    # Get Vietnamese LLaMA instance (singleton)
     global _vietnamese_llama
     if _vietnamese_llama is None:
         _vietnamese_llama = VietnameseLlamaEvaluator()
     return _vietnamese_llama
+"""
+
+# ================================================================================
+# REPLACEMENT FUNCTIONS FOR BACKWARD COMPATIBILITY
+# ================================================================================
+
+import logging
+from gpt_evaluator import get_gpt_evaluator
+
+logger = logging.getLogger(__name__)
+
+def get_vietnamese_llama():
+    """
+    Backward compatibility function that returns GPT evaluator instead of LLaMA.
+    This maintains the same interface while using the more efficient GPT-3.5-turbo.
+    """
+    logger.info("Vietnamese LLaMA requested, returning GPT evaluator instead")
+    return get_gpt_evaluator()
+
+# Note: The GPT evaluator has the same interface methods:
+# - evaluate_cv(job_description, cv_text)
+# - extract_json_from_response(response)
+# So existing code will continue to work without modification.
