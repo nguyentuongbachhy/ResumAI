@@ -9,6 +9,7 @@ temp
 train/finetuned_model
 train/mlruns
 train/wandb
+train/vit5-vietnews-qlora
 
 ./cv_evaluator.db
 
