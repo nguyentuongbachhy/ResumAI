@@ -1,8 +1,16 @@
 **/__pycache__
 .env
-train
 models
 uploads
+cache
+outputs
+temp
+
+train/finetuned_model
+train/mlruns
+train/wandb
+
+./cv_evaluator.db
 
 structure.md
 get_structure.py
