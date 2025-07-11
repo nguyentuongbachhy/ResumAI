@@ -93,7 +93,7 @@ st.markdown("""
         
         /* Background Colors */
         --bg-primary: #ffffff;
-        --bg-secondary: #eceff4;
+        --bg-secondary: #eceff4h;
         --bg-tertiary: #f1f5f9;
         --bg-dark: #0f172a;
         --bg-dark-secondary: #1e293b;
