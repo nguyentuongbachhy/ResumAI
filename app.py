@@ -93,7 +93,7 @@ st.markdown("""
         
         /* Background Colors */
         --bg-primary: #ffffff;
-        --bg-secondary: #f8fafc;
+        --bg-secondary: #eceff4;
         --bg-tertiary: #f1f5f9;
         --bg-dark: #0f172a;
         --bg-dark-secondary: #1e293b;
@@ -1718,7 +1718,7 @@ def load_chat_history_from_db():
         st.session_state.chat_history = []
 
 def render_chat_messages():
-    """Simple HTML chat display with black text"""
+    """Fixed chat interface with proper HTML rendering"""
     st.markdown("## 💬 AI Assistant Conversation")
     
     # Load fresh chat history from database
@@ -1728,120 +1728,256 @@ def render_chat_messages():
         chat_history = []
     
     if chat_history:
-        # Simple chat container
+        # Use a container to properly render chat messages
+        chat_container = st.container()
+        
+        with chat_container:
+            # Create a styled container for chat messages
+            st.markdown("""
+            <style>
+            .chat-container {
+                background: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 12px;
+                padding: 1.5rem;
+                max-height: 500px;
+                overflow-y: auto;
+                margin: 1rem 0;
+            }
+            .chat-message {
+                margin: 1rem 0;
+                padding: 1rem;
+                border-radius: 8px;
+                font-size: 14px;
+                line-height: 1.5;
+            }
+            .msg-system {
+                background: #e3f2fd;
+                border-left: 4px solid #2196f3;
+                color: #1565c0;
+            }
+            .msg-user {
+                background: #f3e5f5;
+                border-left: 4px solid #9c27b0;
+                color: #7b1fa2;
+                margin-left: 20%;
+            }
+            .msg-result {
+                background: #e8f5e8;
+                border-left: 4px solid #4caf50;
+                color: #2e7d32;
+            }
+            .msg-error {
+                background: #ffebee;
+                border-left: 4px solid #f44336;
+                color: #c62828;
+            }
+            .msg-summary {
+                background: #fff3e0;
+                border-left: 4px solid #ff9800;
+                color: #e65100;
+                font-weight: bold;
+            }
+            .msg-time {
+                font-size: 12px;
+                opacity: 0.7;
+                margin-bottom: 0.5rem;
+            }
+            .msg-content {
+                font-weight: 500;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            # Start chat container
+            st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+            
+            # Render each message individually
+            for message in chat_history:
+                msg_type = message.get('type', 'system')
+                msg_text = message.get('message', '')
+                timestamp = datetime.fromtimestamp(message.get('timestamp', time.time())).strftime("%H:%M:%S")
+                
+                # Clean message text - escape HTML but keep basic formatting
+                clean_msg_text = str(msg_text).replace('<', '&lt;').replace('>', '&gt;')
+                
+                # Map message types to styles and icons
+                type_mapping = {
+                    'system': ('msg-system', '🤖'),
+                    'user': ('msg-user', '👤'),
+                    'result': ('msg-result', '📊'),
+                    'error': ('msg-error', '❌'),
+                    'summary': ('msg-summary', '📈')
+                }
+                
+                css_class, icon = type_mapping.get(msg_type, ('msg-system', '💭'))
+                
+                # Render individual message
+                message_html = f"""
+                <div class="chat-message {css_class}">
+                    <div class="msg-time">{icon} {timestamp}</div>
+                    <div class="msg-content">{clean_msg_text}</div>
+                </div>
+                """
+                
+                st.markdown(message_html, unsafe_allow_html=True)
+            
+            # End chat container
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+    else:
+        # Empty state with better styling
         st.markdown("""
-        <style>
-        .simple-chat {
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            padding: 1rem;
-            max-height: 500px;
-            overflow-y: auto;
-            margin: 1rem 0;
-        }
-        .chat-msg {
-            margin: 0.8rem 0;
-            padding: 0.8rem;
-            border-radius: 6px;
-            color: #000000 !important;
-            font-size: 14px;
-            line-height: 1.4;
-        }
-        .msg-system { background: #f0f8ff; border-left: 3px solid #0066cc; }
-        .msg-user { background: #f5f5f5; border-left: 3px solid #666; }
-        .msg-result { background: #f0fff0; border-left: 3px solid #00aa00; }
-        .msg-error { background: #fff0f0; border-left: 3px solid #cc0000; }
-        .msg-summary { background: #fffaf0; border-left: 3px solid #ff8800; }
-        .msg-time { font-size: 11px; color: #666; margin-bottom: 4px; }
-        .msg-text { color: #000000 !important; font-weight: normal; }
-        </style>
+        <div style="
+            text-align: center; 
+            padding: 3rem 2rem; 
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 12px;
+            border: 2px dashed #cbd5e0;
+            color: #4a5568;
+            margin: 2rem 0;
+        ">
+            <div style="font-size: 3rem; margin-bottom: 1rem;">💭</div>
+            <h3 style="color: #2d3748; margin-bottom: 0.5rem;">No conversation yet</h3>
+            <p style="color: #718096; margin: 0;">Start by uploading CVs or ask questions about your candidates!</p>
+        </div>
         """, unsafe_allow_html=True)
+    
+    # Chat input section
+    if st.session_state.current_session_id:
+        st.markdown("---")
+        st.markdown("### 💬 Ask Questions")
         
-        # Build simple chat HTML
-        chat_html = '<div class="simple-chat">'
+        # Input area with better UX
+        col1, col2 = st.columns([3, 1])
         
+        with col1:
+            user_question = st.text_input(
+                "Ask about candidates or CVs:",
+                placeholder="e.g., Tell me about the top candidate's experience",
+                key="chat_input",
+                label_visibility="collapsed"
+            )
+        
+        with col2:
+            send_button = st.button("📤 Send", type="primary", use_container_width=True)
+        
+        # Action buttons
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            if send_button and user_question.strip():
+                handle_chat_query(user_question.strip())
+                st.rerun()
+        
+        with col2:
+            if st.button("🧹 Clear Chat", use_container_width=True):
+                if st.session_state.current_session_id:
+                    if db_manager.clear_chat_history(st.session_state.current_session_id):
+                        st.success("✅ Chat cleared!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to clear chat")
+        
+        # Quick action buttons
+        if st.session_state.session_state and st.session_state.session_state.get('final_results'):
+            with col3:
+                if st.button("👥 Top Candidates", use_container_width=True):
+                    handle_chat_query("Who are the top 3 candidates and why?")
+                    st.rerun()
+            
+            with col4:
+                if st.button("📊 Summary Report", use_container_width=True):
+                    handle_chat_query("Give me a comprehensive summary of all evaluation results")
+                    st.rerun()
+        
+        # Quick questions section
+        if st.session_state.session_state and st.session_state.session_state.get('final_results'):
+            with st.expander("🔮 Quick Questions"):
+                st.markdown("**Click to ask:**")
+                
+                quick_questions = [
+                    "What are the key differences between the top 2 candidates?",
+                    "Which candidate has the strongest technical background?",
+                    "Are there any candidates with leadership experience?",
+                    "What skills are missing from the candidate pool?",
+                    "Give me recruitment recommendations for each candidate"
+                ]
+                
+                for i, question in enumerate(quick_questions):
+                    if st.button(f"💡 {question}", key=f"quick_q_{i}", use_container_width=True):
+                        handle_chat_query(question)
+                        st.rerun()
+    else:
+        st.info("👈 Create a new session in the sidebar to start chatting!")
+
+def render_chat_messages_simple():
+    """Simple fallback version using st.chat_message"""
+    st.markdown("## 💬 AI Assistant Conversation")
+    
+    # Load chat history
+    if st.session_state.current_session_id:
+        chat_history = db_manager.get_chat_history(st.session_state.current_session_id)
+    else:
+        chat_history = []
+    
+    if chat_history:
+        # Use streamlit's native chat interface - this avoids HTML issues completely
         for message in chat_history:
             msg_type = message.get('type', 'system')
             msg_text = message.get('message', '')
             timestamp = datetime.fromtimestamp(message.get('timestamp', time.time())).strftime("%H:%M:%S")
             
-            # Clean message text
-            clean_msg_text = str(msg_text).replace('<', '&lt;').replace('>', '&gt;')
-            
-            # Get CSS class and icon
-            type_map = {
-                'system': ('msg-system', '🤖'),
-                'user': ('msg-user', '👤'),
-                'result': ('msg-result', '📊'),
-                'error': ('msg-error', '❌'),
-                'summary': ('msg-summary', '📈')
+            # Map message types to streamlit chat roles and add icons
+            type_icons = {
+                'system': '🤖',
+                'user': '👤', 
+                'result': '📊',
+                'error': '❌',
+                'summary': '📈'
             }
             
-            css_class, icon = type_map.get(msg_type, ('msg-system', '💭'))
+            icon = type_icons.get(msg_type, '💭')
             
-            chat_html += f'''
-            <div class="chat-msg {css_class}">
-                <div class="msg-time">{icon} {timestamp}</div>
-                <div class="msg-text">{clean_msg_text}</div>
-            </div>
-            '''
-        
-        chat_html += '</div>'
-        st.markdown(chat_html, unsafe_allow_html=True)
-        
-    else:
-        st.markdown("""
-        <div style="
-            text-align: center; 
-            padding: 2rem; 
-            background: #f9f9f9;
-            border-radius: 8px;
-            border: 1px dashed #ccc;
-            color: #000000;
-        ">
-            <h4 style="color: #000000;">💭 No messages yet</h4>
-            <p style="color: #666;">Start by uploading CVs or ask questions!</p>
-        </div>
-        """, unsafe_allow_html=True)
+            if msg_type == 'user':
+                role = "user"
+                display_text = msg_text
+            else:
+                role = "assistant"
+                display_text = f"{icon} {msg_text}"
+            
+            # Display using streamlit's native chat message component
+            with st.chat_message(role):
+                st.caption(f"Time: {timestamp}")
+                st.write(display_text)
     
-    # Chat input
+    else:
+        st.info("💭 No messages yet. Start by uploading CVs or ask questions!")
+    
+    # Chat input using streamlit's native chat input
     if st.session_state.current_session_id:
-        st.markdown("---")
-        
-        # Input area
-        user_question = st.text_input(
-            "💬 Ask about candidates or CVs:",
-            placeholder="e.g., Tell me about the top candidate's experience",
-            key="chat_input"
-        )
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            if st.button("Send", type="primary", use_container_width=True):
-                if user_question.strip():
-                    handle_chat_query(user_question.strip())
-                    st.rerun()
-        
-        with col2:
-            if st.button("🧹 Clear", use_container_width=True):
-                if st.session_state.current_session_id:
-                    db_manager.clear_chat_history(st.session_state.current_session_id)
-                    st.success("Chat cleared!")
-                    st.rerun()
-        
-        # Quick buttons
+        if prompt := st.chat_input("Ask about candidates or evaluation results..."):
+            handle_chat_query(prompt)
+            st.rerun()
+            
+        # Quick action buttons
         if st.session_state.session_state and st.session_state.session_state.get('final_results'):
-            with col3:
-                if st.button("👥 Top candidates", use_container_width=True):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.button("👥 Top Candidates", use_container_width=True):
                     handle_chat_query("Who are the top 3 candidates and why?")
                     st.rerun()
-            
-            with col4:
+            with col2:
                 if st.button("📊 Summary", use_container_width=True):
-                    handle_chat_query("Give me a summary of all evaluation results")
+                    handle_chat_query("Give me a comprehensive summary of all evaluation results")
                     st.rerun()
+            with col3:
+                if st.button("🧹 Clear", use_container_width=True):
+                    if db_manager.clear_chat_history(st.session_state.current_session_id):
+                        st.success("Chat cleared!")
+                        st.rerun()
+    else:
+        st.info("👈 Create a session first to start chatting!")
 
 def handle_chat_query(question: str):
     """Handle user chat queries with database persistence"""
