@@ -123,7 +123,7 @@ st.markdown("""
     /* Global Styles */
     .stApp {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--gray-100) 100%);
         color: var(--text-primary);
         line-height: 1.6;
     }
@@ -493,6 +493,7 @@ st.markdown("""
     
     /* Feature Cards - Enhanced Design */
     .feature-card {
+        color: black;
         background: var(--bg-primary);
         border-radius: var(--radius-xl);
         padding: 2.5rem;
@@ -1014,11 +1015,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def initialize_session_state():
-    """Initialize enhanced session state variables"""
+    """Initialize enhanced session state with database integration"""
     if 'current_session_id' not in st.session_state:
         st.session_state.current_session_id = None
-    if 'chat_history' not in st.session_state:
-        st.session_state.chat_history = []
     if 'session_state' not in st.session_state:
         st.session_state.session_state = None
     if 'auto_refresh' not in st.session_state:
@@ -1030,14 +1029,29 @@ def initialize_session_state():
     if 'required_candidates' not in st.session_state:
         st.session_state.required_candidates = 3
 
+    # Load chat history from database if session exists
+    if st.session_state.current_session_id:
+        load_chat_history_from_db()
+
+def load_chat_history_from_db():
+    """Load chat history from database"""
+    try:
+        if st.session_state.current_session_id:
+            chat_history = db_manager.get_chat_history(st.session_state.current_session_id)
+            # Store in session state for compatibility
+            st.session_state.chat_history = chat_history
+    except Exception as e:
+        logger.error(f"Error loading chat history: {e}")
+        st.session_state.chat_history = []
+
 def render_sidebar():
-    """Clean and professional sidebar"""
+    """Enhanced sidebar with database integration"""
     with st.sidebar:
         # Header
         st.markdown("""
         <div class="sidebar-header">
-            <h2 style="margin: 0; color: #2c3e50; font-weight: 700;">🎯 CV Evaluator</h2>
-            <p style="margin: 0.5rem 0 0 0; color: #6c757d; font-size: 0.9rem;">AI-Powered Recruitment</p>
+            <h2 style="margin: 0; color: white; font-weight: 700;">🎯 CV Evaluator</h2>
+            <p style="margin: 0.5rem 0 0 0; color: #cbd5e1; font-size: 0.9rem;">AI-Powered Recruitment</p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -1049,7 +1063,6 @@ def render_sidebar():
         with col1:
             if st.button("➕ New", help="Create new session", use_container_width=True):
                 st.session_state.current_session_id = generate_session_id()
-                st.session_state.chat_history = []
                 st.session_state.session_state = None
                 st.session_state.job_description = ""
                 st.session_state.position_title = ""
@@ -1061,7 +1074,8 @@ def render_sidebar():
                     session_state = cv_workflow.get_session_state(st.session_state.current_session_id)
                     if session_state:
                         st.session_state.session_state = session_state
-                        st.session_state.chat_history = session_state.get('chat_history', [])
+                        st.session_state.job_description = session_state.get('job_description', '')
+                        st.session_state.position_title = session_state.get('position_title', '')
                 st.rerun()
         
         # Current session info
@@ -1087,50 +1101,86 @@ def render_sidebar():
         
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Recent Sessions
+        # Recent Sessions - Enhanced with database
         st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
         st.markdown('<h4>📋 Recent Sessions</h4>', unsafe_allow_html=True)
         
         sessions = db_manager.get_all_sessions()
         
         if sessions:
-            for session in sessions[:3]:
+            for session in sessions[:5]:  # Show top 5 recent
                 with st.expander(f"📅 {format_datetime(session['created_at'])}"):
+                    st.write(f"**Position:** {session.get('position_title', 'N/A')}")
                     st.write(f"**CVs:** {session['total_cvs']}")
                     st.write(f"**Evaluations:** {session['total_evaluations']}")
                     
-                    if st.button(f"Load", key=f"load_{session['session_id']}", use_container_width=True):
-                        st.session_state.current_session_id = session['session_id']
-                        session_state = cv_workflow.get_session_state(session['session_id'])
-                        if session_state:
-                            st.session_state.session_state = session_state
-                            st.session_state.chat_history = session_state.get('chat_history', [])
-                            st.session_state.job_description = session_state.get('job_description', '')
-                            st.session_state.position_title = session_state.get('position_title', '')
-                        st.rerun()
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button(f"Load", key=f"load_{session['session_id']}", use_container_width=True):
+                            st.session_state.current_session_id = session['session_id']
+                            session_state = cv_workflow.get_session_state(session['session_id'])
+                            if session_state:
+                                st.session_state.session_state = session_state
+                                st.session_state.job_description = session_state.get('job_description', '')
+                                st.session_state.position_title = session_state.get('position_title', '')
+                            st.rerun()
+                    
+                    with col2:
+                        if st.button(f"Delete", key=f"del_{session['session_id']}", use_container_width=True):
+                            if db_manager.delete_session(session['session_id']):
+                                st.success("Session deleted!")
+                                st.rerun()
         else:
             st.info("No recent sessions")
         
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Session Stats
+        # Enhanced Session Stats with Database Analytics
         st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
         st.markdown('<h4>📊 Current Session</h4>', unsafe_allow_html=True)
         
-        if st.session_state.session_state and st.session_state.session_state.get('final_results'):
-            results = st.session_state.session_state['final_results']
-            col1, col2 = st.columns(2)
+        if st.session_state.current_session_id and st.session_state.session_state:
+            session_state = st.session_state.session_state
             
-            with col1:
-                st.metric("CVs", results.get('total_cvs', 0))
-                st.metric("Qualified", results.get('qualified_count', 0))
+            # Get analytics from database
+            analytics = db_manager.get_session_analytics(st.session_state.current_session_id)
+            
+            if analytics:
+                col1, col2 = st.columns(2)
                 
-            with col2:
-                st.metric("Avg Score", f"{results.get('average_score', 0):.1f}")
-                pass_rate = results.get('summary', {}).get('qualification_rate', 0)
-                st.metric("Pass Rate", f"{pass_rate:.1f}%")
+                with col1:
+                    st.metric("Files", analytics.get('total_files_uploaded', 0))
+                    st.metric("Evaluations", analytics.get('total_evaluations', 0))
+                    
+                with col2:
+                    st.metric("Avg Score", f"{analytics.get('average_score', 0):.1f}")
+                    st.metric("Messages", analytics.get('total_chat_messages', 0))
+                
+                # Show qualification rate if available
+                if session_state.get('final_results'):
+                    results = session_state['final_results']
+                    qualified_count = results.get('qualified_count', 0)
+                    total_cvs = results.get('total_cvs', 0)
+                    
+                    if total_cvs > 0:
+                        pass_rate = (qualified_count / total_cvs) * 100
+                        st.metric("Pass Rate", f"{pass_rate:.1f}%")
+            else:
+                st.info("No analytics data yet")
         else:
-            st.info("No evaluation data yet")
+            st.info("No active session")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Database Statistics
+        st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+        st.markdown('<h4>🗄️ Database Stats</h4>', unsafe_allow_html=True)
+        
+        db_stats = db_manager.get_database_stats()
+        if db_stats:
+            st.metric("Total Sessions", db_stats.get('total_sessions', 0))
+            st.metric("Total CVs", db_stats.get('total_cvs', 0))
+            st.metric("Global Avg", f"{db_stats.get('average_score', 0):.1f}")
         
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1242,79 +1292,120 @@ def render_welcome_screen():
     """, unsafe_allow_html=True)
 
 def render_chat_messages():
-    """Enhanced chat message display with interactive chat"""
-    st.markdown("""
-    <div class="card">
-        <div class="card-header">
-            <div class="card-icon">💬</div>
-            <h3>AI Assistant Conversation</h3>
-        </div>
-    """, unsafe_allow_html=True)
+    """Fixed HTML chat display - no whitespace issues"""
+    st.markdown("## 💬 AI Assistant Conversation")
     
-    if st.session_state.chat_history:
-        chat_html = '<div class="chat-container">'
+    # Load fresh chat history from database
+    if st.session_state.current_session_id:
+        chat_history = db_manager.get_chat_history(st.session_state.current_session_id)
+    else:
+        chat_history = []
+    
+    if chat_history:
+        # CSS in one block
+        st.markdown("""<style>
+        .simple-chat {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 1rem;
+            max-height: 500px;
+            overflow-y: auto;
+            margin: 1rem 0;
+        }
+        .chat-msg {
+            margin: 0.8rem 0;
+            padding: 0.8rem;
+            border-radius: 6px;
+            color: #000000 !important;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .msg-system { background: #f0f8ff; border-left: 3px solid #0066cc; }
+        .msg-user { background: #f5f5f5; border-left: 3px solid #666; }
+        .msg-result { background: #f0fff0; border-left: 3px solid #00aa00; }
+        .msg-error { background: #fff0f0; border-left: 3px solid #cc0000; }
+        .msg-summary { background: #fffaf0; border-left: 3px solid #ff8800; }
+        .msg-time { font-size: 11px; color: #666; margin-bottom: 4px; }
+        .msg-text { color: #000000 !important; font-weight: normal; }
+        </style>""", unsafe_allow_html=True)
         
-        for message in st.session_state.chat_history:
+        # Build HTML string WITHOUT any whitespace between tags
+        messages_html = []
+        messages_html.append('<div class="simple-chat">')
+        
+        for message in chat_history:
             msg_type = message.get('type', 'system')
             msg_text = message.get('message', '')
             timestamp = datetime.fromtimestamp(message.get('timestamp', time.time())).strftime("%H:%M:%S")
             
-            css_class = f"{msg_type}-message"
-            chat_html += f'''
-            <div class="chat-message {css_class}">
-                <div style="font-size: 0.8rem; opacity: 0.7; margin-bottom: 0.25rem;">{timestamp}</div>
-                <div>{msg_text}</div>
-            </div>
-            '''
+            # Clean message text
+            clean_msg_text = str(msg_text).replace('<', '&lt;').replace('>', '&gt;')
+            
+            # Get CSS class and icon
+            type_map = {
+                'system': ('msg-system', '🤖'),
+                'user': ('msg-user', '👤'),
+                'result': ('msg-result', '📊'),
+                'error': ('msg-error', '❌'),
+                'summary': ('msg-summary', '📈')
+            }
+            
+            css_class, icon = type_map.get(msg_type, ('msg-system', '💭'))
+            
+            # Build message HTML - NO WHITESPACE between tags
+            message_html = f'<div class="chat-msg {css_class}"><div class="msg-time">{icon} {timestamp}</div><div class="msg-text">{clean_msg_text}</div></div>'
+            messages_html.append(message_html)
         
-        chat_html += '</div>'
-        st.markdown(chat_html, unsafe_allow_html=True)
+        messages_html.append('</div>')
+        
+        # Join without any separators to avoid whitespace
+        final_html = ''.join(messages_html)
+        
+        # Render as single block
+        st.markdown(final_html, unsafe_allow_html=True)
+        
     else:
-        st.markdown("""
-        <div style="text-align: center; padding: 2rem; color: #6c757d;">
-            <div style="font-size: 3rem; margin-bottom: 1rem;">💭</div>
-            <p>No messages yet. Start by uploading some CVs or ask me questions!</p>
-        </div>
-        """, unsafe_allow_html=True)
+        # Empty state
+        st.markdown("""<div style="text-align: center; padding: 2rem; background: #f9f9f9; border-radius: 8px; border: 1px dashed #ccc; color: #000000;"><h4 style="color: #000000;">💭 No messages yet</h4><p style="color: #666;">Start by uploading CVs or ask questions!</p></div>""", unsafe_allow_html=True)
     
-    # Chat input area
+    # Chat input
     if st.session_state.current_session_id:
-        st.markdown("### 💬 Ask AI Assistant")
+        st.markdown("---")
         
-        col1, col2 = st.columns([4, 1])
+        # Input area
+        user_question = st.text_input(
+            "💬 Ask about candidates or CVs:",
+            placeholder="e.g., Tell me about the top candidate's experience",
+            key="chat_input"
+        )
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
         with col1:
-            user_question = st.text_input(
-                "Ask about candidates or CVs...",
-                placeholder="e.g., Tell me about candidate John Doe's experience with Python",
-                key="chat_input"
-            )
-        with col2:
             if st.button("Send", type="primary", use_container_width=True):
                 if user_question.strip():
                     handle_chat_query(user_question.strip())
                     st.rerun()
         
-        # Quick question buttons
+        with col2:
+            if st.button("🧹 Clear", use_container_width=True):
+                if st.session_state.current_session_id:
+                    db_manager.clear_chat_history(st.session_state.current_session_id)
+                    st.success("Chat cleared!")
+                    st.rerun()
+        
+        # Quick buttons
         if st.session_state.session_state and st.session_state.session_state.get('final_results'):
-            st.markdown("**Quick Questions:**")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                if st.button("👥 Top candidates?", use_container_width=True):
+            with col3:
+                if st.button("👥 Top candidates", use_container_width=True):
                     handle_chat_query("Who are the top 3 candidates and why?")
                     st.rerun()
             
-            with col2:
-                if st.button("📊 Summary stats?", use_container_width=True):
+            with col4:
+                if st.button("📊 Summary", use_container_width=True):
                     handle_chat_query("Give me a summary of all evaluation results")
                     st.rerun()
-            
-            with col3:
-                if st.button("🔍 Skills analysis?", use_container_width=True):
-                    handle_chat_query("Analyze the skills distribution among candidates")
-                    st.rerun()
-    
-    st.markdown('</div>', unsafe_allow_html=True)
 
 def render_file_upload_area():
     """Enhanced file upload interface"""
@@ -1430,64 +1521,65 @@ def render_file_upload_area():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def render_session_info():
-    """Enhanced session information panel"""
+    """Enhanced session info with database analytics"""
     st.markdown("""
     <div class="card">
         <div class="card-header">
             <div class="card-icon">📊</div>
-            <h3>Session Overview</h3>
+            <h3>Session Analytics</h3>
         </div>
     """, unsafe_allow_html=True)
     
-    if st.session_state.session_state:
+    if st.session_state.current_session_id and st.session_state.session_state:
         session = st.session_state.session_state
         
-        # Status badge
-        status = session.get('processing_status', 'unknown')
-        status_labels = {
-            'initialized': '🔄 Initialized',
-            'ready': '✅ Ready',
-            'processing_files': '⏳ Processing Files',
-            'extracting_text': '🔍 Extracting Text',
-            'evaluating_cvs': '🤖 AI Evaluation',
-            'finalizing_results': '📊 Finalizing',
-            'sending_emails': '📧 Sending Emails',
-            'completed': '✅ Completed',
-            'error': '❌ Error'
-        }
+        # Get detailed analytics from database
+        analytics = db_manager.get_session_analytics(st.session_state.current_session_id)
+        session_info = db_manager.get_session(st.session_state.current_session_id)
         
-        status_colors = {
-            'initialized': 'status-ready',
-            'ready': 'status-ready',
-            'processing_files': 'status-processing',
-            'extracting_text': 'status-processing',
-            'evaluating_cvs': 'status-processing',
-            'finalizing_results': 'status-processing',
-            'sending_emails': 'status-processing',
-            'completed': 'status-completed',
-            'error': 'status-error'
-        }
-        
-        status_class = status_colors.get(status, 'status-ready')
-        status_label = status_labels.get(status, status.title())
-        
-        st.markdown(f'''
-        <div class="status-badge {status_class}">
-            {status_label}
-        </div>
-        ''', unsafe_allow_html=True)
+        # Session details
+        if session_info:
+            st.markdown(f"**Position:** {session_info.get('position_title', 'N/A')}")
+            st.markdown(f"**Created:** {format_datetime(session_info.get('created_at', ''))}")
+            st.markdown(f"**Status:** {session_info.get('status', 'active').title()}")
         
         st.markdown("---")
         
-        # Session details
-        st.markdown(f"**Position:** {session.get('position_title', 'N/A')}")
-        st.markdown(f"**Required:** {session.get('required_candidates', 'N/A')} candidates")
+        # Processing Statistics
+        if analytics:
+            st.markdown("### 📈 Processing Stats")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-value">{analytics.get('total_files_uploaded', 0)}</div>
+                    <div class="metric-label">Files Uploaded</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            with col2:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-value">{analytics.get('total_files_processed', 0)}</div>
+                    <div class="metric-label">Files Processed</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            with col3:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-value">{analytics.get('total_chat_messages', 0)}</div>
+                    <div class="metric-label">Chat Messages</div>
+                </div>
+                """, unsafe_allow_html=True)
         
-        # Results metrics
+        # Evaluation Results
         if 'final_results' in session and session['final_results']:
             results = session['final_results']
             
-            st.markdown("### 📈 Results")
+            st.markdown("### 📊 Evaluation Results")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -1525,13 +1617,6 @@ def render_session_info():
                     <div class="metric-label">Pass Rate</div>
                 </div>
                 """, unsafe_allow_html=True)
-        
-        # Email status
-        email_status = session.get('email_status', {})
-        if email_status.get('sent'):
-            st.markdown("### 📧 Email Status")
-            st.success(f"✅ Rejection emails: {email_status.get('rejection_count', 0)} sent")
-            st.info(f"⏰ Interview invites: {email_status.get('interview_count', 0)} scheduled")
     
     else:
         st.markdown("""
@@ -1600,23 +1685,186 @@ def render_quick_actions():
     
     st.markdown('</div>', unsafe_allow_html=True)
 
-def handle_chat_query(question: str):
-    """Handle user chat queries about CVs and evaluations"""
+# Cập nhật các functions chính trong app.py
+
+def initialize_session_state():
+    """Initialize enhanced session state with database integration"""
+    if 'current_session_id' not in st.session_state:
+        st.session_state.current_session_id = None
+    if 'session_state' not in st.session_state:
+        st.session_state.session_state = None
+    if 'auto_refresh' not in st.session_state:
+        st.session_state.auto_refresh = False
+    if 'job_description' not in st.session_state:
+        st.session_state.job_description = ""
+    if 'position_title' not in st.session_state:
+        st.session_state.position_title = ""
+    if 'required_candidates' not in st.session_state:
+        st.session_state.required_candidates = 3
+    
+    # Load chat history from database if session exists
+    if st.session_state.current_session_id:
+        load_chat_history_from_db()
+
+def load_chat_history_from_db():
+    """Load chat history from database"""
     try:
-        # Add user message to chat
-        st.session_state.chat_history.append({
-            "type": "user",
-            "message": question,
-            "timestamp": time.time()
-        })
+        if st.session_state.current_session_id:
+            chat_history = db_manager.get_chat_history(st.session_state.current_session_id)
+            # Store in session state for compatibility
+            st.session_state.chat_history = chat_history
+    except Exception as e:
+        logger.error(f"Error loading chat history: {e}")
+        st.session_state.chat_history = []
+
+def render_chat_messages():
+    """Simple HTML chat display with black text"""
+    st.markdown("## 💬 AI Assistant Conversation")
+    
+    # Load fresh chat history from database
+    if st.session_state.current_session_id:
+        chat_history = db_manager.get_chat_history(st.session_state.current_session_id)
+    else:
+        chat_history = []
+    
+    if chat_history:
+        # Simple chat container
+        st.markdown("""
+        <style>
+        .simple-chat {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 1rem;
+            max-height: 500px;
+            overflow-y: auto;
+            margin: 1rem 0;
+        }
+        .chat-msg {
+            margin: 0.8rem 0;
+            padding: 0.8rem;
+            border-radius: 6px;
+            color: #000000 !important;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .msg-system { background: #f0f8ff; border-left: 3px solid #0066cc; }
+        .msg-user { background: #f5f5f5; border-left: 3px solid #666; }
+        .msg-result { background: #f0fff0; border-left: 3px solid #00aa00; }
+        .msg-error { background: #fff0f0; border-left: 3px solid #cc0000; }
+        .msg-summary { background: #fffaf0; border-left: 3px solid #ff8800; }
+        .msg-time { font-size: 11px; color: #666; margin-bottom: 4px; }
+        .msg-text { color: #000000 !important; font-weight: normal; }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Build simple chat HTML
+        chat_html = '<div class="simple-chat">'
+        
+        for message in chat_history:
+            msg_type = message.get('type', 'system')
+            msg_text = message.get('message', '')
+            timestamp = datetime.fromtimestamp(message.get('timestamp', time.time())).strftime("%H:%M:%S")
+            
+            # Clean message text
+            clean_msg_text = str(msg_text).replace('<', '&lt;').replace('>', '&gt;')
+            
+            # Get CSS class and icon
+            type_map = {
+                'system': ('msg-system', '🤖'),
+                'user': ('msg-user', '👤'),
+                'result': ('msg-result', '📊'),
+                'error': ('msg-error', '❌'),
+                'summary': ('msg-summary', '📈')
+            }
+            
+            css_class, icon = type_map.get(msg_type, ('msg-system', '💭'))
+            
+            chat_html += f'''
+            <div class="chat-msg {css_class}">
+                <div class="msg-time">{icon} {timestamp}</div>
+                <div class="msg-text">{clean_msg_text}</div>
+            </div>
+            '''
+        
+        chat_html += '</div>'
+        st.markdown(chat_html, unsafe_allow_html=True)
+        
+    else:
+        st.markdown("""
+        <div style="
+            text-align: center; 
+            padding: 2rem; 
+            background: #f9f9f9;
+            border-radius: 8px;
+            border: 1px dashed #ccc;
+            color: #000000;
+        ">
+            <h4 style="color: #000000;">💭 No messages yet</h4>
+            <p style="color: #666;">Start by uploading CVs or ask questions!</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Chat input
+    if st.session_state.current_session_id:
+        st.markdown("---")
+        
+        # Input area
+        user_question = st.text_input(
+            "💬 Ask about candidates or CVs:",
+            placeholder="e.g., Tell me about the top candidate's experience",
+            key="chat_input"
+        )
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            if st.button("Send", type="primary", use_container_width=True):
+                if user_question.strip():
+                    handle_chat_query(user_question.strip())
+                    st.rerun()
+        
+        with col2:
+            if st.button("🧹 Clear", use_container_width=True):
+                if st.session_state.current_session_id:
+                    db_manager.clear_chat_history(st.session_state.current_session_id)
+                    st.success("Chat cleared!")
+                    st.rerun()
+        
+        # Quick buttons
+        if st.session_state.session_state and st.session_state.session_state.get('final_results'):
+            with col3:
+                if st.button("👥 Top candidates", use_container_width=True):
+                    handle_chat_query("Who are the top 3 candidates and why?")
+                    st.rerun()
+            
+            with col4:
+                if st.button("📊 Summary", use_container_width=True):
+                    handle_chat_query("Give me a summary of all evaluation results")
+                    st.rerun()
+
+def handle_chat_query(question: str):
+    """Handle user chat queries with database persistence"""
+    try:
+        if not st.session_state.current_session_id:
+            st.error("No active session. Please create a new session first.")
+            return
+        
+        # Save user message to database
+        cv_workflow.add_chat_message_to_session(
+            st.session_state.current_session_id,
+            'user',
+            question,
+            'user'
+        )
         
         # Check if we have evaluation data
         if not st.session_state.session_state or not st.session_state.session_state.get('final_results'):
-            st.session_state.chat_history.append({
-                "type": "system",
-                "message": "🤖 I don't have any evaluation data yet. Please upload and evaluate some CVs first!",
-                "timestamp": time.time()
-            })
+            cv_workflow.add_chat_message_to_session(
+                st.session_state.current_session_id,
+                'system',
+                "🤖 I don't have any evaluation data yet. Please upload and evaluate some CVs first!"
+            )
             return
         
         # Get current session data
@@ -1631,20 +1879,22 @@ def handle_chat_query(question: str):
         with st.spinner("🤖 AI is thinking..."):
             response = generate_chat_response(context, question)
         
-        # Add AI response to chat
-        st.session_state.chat_history.append({
-            "type": "result",
-            "message": f"🤖 {response}",
-            "timestamp": time.time()
-        })
+        # Save AI response to database
+        cv_workflow.add_chat_message_to_session(
+            st.session_state.current_session_id,
+            'result',
+            f"🤖 {response}",
+            'assistant'
+        )
         
     except Exception as e:
         logger.error(f"Error handling chat query: {e}")
-        st.session_state.chat_history.append({
-            "type": "error",
-            "message": f"❌ Error processing your question: {str(e)}",
-            "timestamp": time.time()
-        })
+        cv_workflow.add_chat_message_to_session(
+            st.session_state.current_session_id,
+            'error',
+            f"❌ Error processing your question: {str(e)}",
+            'system'
+        )
 
 def create_chat_context(results: Dict, job_description: str, question: str) -> str:
     """Create context for chat AI response"""
@@ -1744,8 +1994,16 @@ def generate_chat_response(context: str, question: str) -> str:
         return f"I apologize, but I encountered an error while processing your question: {str(e)}"
 
 def start_chat_evaluation_with_streaming(uploaded_files: List):
-    """Start evaluation with streaming responses"""
+    """Start evaluation with database integration"""
     try:
+        if not st.session_state.current_session_id:
+            st.error("No active session. Please create a new session first.")
+            return
+        
+        if not st.session_state.job_description:
+            st.error("Please set job description first.")
+            return
+        
         setup_directories()
         
         # Save files
@@ -1755,134 +2013,41 @@ def start_chat_evaluation_with_streaming(uploaded_files: List):
             file_info = get_file_info(file, file_path)
             saved_files.append(file_info)
         
-        # Add user message
-        st.session_state.chat_history.append({
-            "type": "user",
-            "message": f"📁 Uploaded {len(saved_files)} CV files for evaluation",
-            "timestamp": time.time()
-        })
+        # Use updated workflow with database integration
+        cv_workflow_instance = get_cached_workflow()
         
-        # Process files step by step with streaming
-        st.session_state.chat_history.append({
-            "type": "system",
-            "message": "🚀 Starting AI-powered CV evaluation...",
-            "timestamp": time.time()
-        })
+        with st.spinner("🚀 Starting AI evaluation workflow..."):
+            result = cv_workflow_instance.run_evaluation(
+                st.session_state.current_session_id,
+                st.session_state.job_description,
+                st.session_state.required_candidates,
+                saved_files,
+                st.session_state.position_title
+            )
         
-        # Initialize results storage
-        evaluation_results = []
-        
-        for i, file_info in enumerate(saved_files, 1):
-            # OCR Step
-            st.session_state.chat_history.append({
-                "type": "system",
-                "message": f"🔍 [{i}/{len(saved_files)}] Extracting text from {file_info['filename']}...",
-                "timestamp": time.time()
-            })
-            
-            # Extract text with Gemini
-            extracted_text = gemini_ocr.extract_text(file_info["path"])
-            
-            if extracted_text and not extracted_text.startswith('Error'):
-                # GPT Evaluation with streaming
-                st.session_state.chat_history.append({
-                    "type": "system",
-                    "message": f"🤖 [{i}/{len(saved_files)}] AI evaluating {file_info['filename']}...",
-                    "timestamp": time.time()
-                })
-                
-                # Stream evaluation
-                evaluation_text = stream_cv_evaluation(file_info['filename'], extracted_text)
-                
-                # Parse evaluation
-                try:
-                    eval_data = json.loads(evaluation_text)
-                    score = eval_data.get("Điểm tổng", 0)
-                    is_qualified = eval_data.get("Phù hợp", "không phù hợp") == "phù hợp"
-                    
-                    result = {
-                        "filename": file_info['filename'],
-                        "score": score,
-                        "is_qualified": is_qualified,
-                        "evaluation_text": evaluation_text,
-                        "extracted_text": extracted_text
-                    }
-                    
-                    evaluation_results.append(result)
-                    
-                    # Show individual result
-                    status = "✅ Qualified" if is_qualified else "❌ Not Qualified"
-                    st.session_state.chat_history.append({
-                        "type": "result",
-                        "message": f"📊 {file_info['filename']}: {score:.1f}/10 - {status}",
-                        "timestamp": time.time()
-                    })
-                    
-                except Exception as e:
-                    logger.error(f"Error parsing evaluation: {e}")
-                    evaluation_results.append({
-                        "filename": file_info['filename'],
-                        "score": 0,
-                        "is_qualified": False,
-                        "evaluation_text": evaluation_text,
-                        "extracted_text": extracted_text
-                    })
-            else:
-                st.session_state.chat_history.append({
-                    "type": "error",
-                    "message": f"❌ Failed to extract text from {file_info['filename']}",
-                    "timestamp": time.time()
-                })
-        
-        # Finalize results
-        if evaluation_results:
-            # Sort by score
-            evaluation_results.sort(key=lambda x: x["score"], reverse=True)
-            
-            # Calculate summary
-            total_cvs = len(evaluation_results)
-            qualified_count = sum(1 for r in evaluation_results if r["is_qualified"])
-            avg_score = sum(r["score"] for r in evaluation_results) / total_cvs
-            
-            final_results = {
-                "total_cvs": total_cvs,
-                "qualified_count": qualified_count,
-                "average_score": round(avg_score, 2),
-                "all_evaluations": evaluation_results,
-                "top_candidates": evaluation_results[:st.session_state.required_candidates],
-                "summary": {
-                    "best_score": evaluation_results[0]["score"] if evaluation_results else 0,
-                    "worst_score": evaluation_results[-1]["score"] if evaluation_results else 0,
-                    "qualification_rate": round(qualified_count / total_cvs * 100, 1)
-                },
-                "qualified_candidates": [r for r in evaluation_results if r["is_qualified"]],
-                "rejected_candidates": [r for r in evaluation_results if not r["is_qualified"]]
-            }
-            
+        if result["success"]:
             # Update session state
             st.session_state.session_state = {
-                "session_id": st.session_state.current_session_id,
-                "final_results": final_results,
+                "session_id": result["session_id"],
+                "final_results": result.get("results", {}),
+                "processing_status": result.get("status", "completed"),
                 "job_description": st.session_state.job_description,
                 "position_title": st.session_state.position_title,
-                "required_candidates": st.session_state.required_candidates,
-                "processing_status": "completed"
+                "required_candidates": st.session_state.required_candidates
             }
             
-            # Final summary
-            st.session_state.chat_history.append({
-                "type": "summary",
-                "message": f"✅ Evaluation completed! {qualified_count}/{total_cvs} candidates qualified (Avg: {avg_score:.1f}/10)",
-                "timestamp": time.time()
-            })
+            st.success("✅ Evaluation completed successfully!")
             
-            st.success("🎉 AI evaluation completed successfully!")
-        
+        else:
+            st.error(f"❌ Evaluation failed: {result.get('error', 'Unknown error')}")
+            
         st.rerun()
         
     except Exception as e:
-        st.error(f"❌ Error during evaluation: {str(e)}")
-        logger.error(f"Error in streaming evaluation: {e}")
+        st.error(f"❌ Error starting evaluation: {str(e)}")
+        logger.error(f"Error starting chat evaluation: {e}")
+
+
 
 def stream_cv_evaluation(filename: str, cv_text: str) -> str:
     """Stream CV evaluation with GPT"""
@@ -2139,21 +2304,19 @@ def export_summary_csv():
         st.error(f"Error exporting CSV: {str(e)}")
 
 def main():
-    """Enhanced main application function"""
+    """Enhanced main application function with database"""
     initialize_session_state()
     setup_directories()
     
-    # Auto-refresh logic
+    # Auto-refresh logic with database
     if st.session_state.auto_refresh and st.session_state.current_session_id:
         if 'last_refresh' not in st.session_state:
             st.session_state.last_refresh = time.time()
         
         if time.time() - st.session_state.last_refresh > 30:
-            cv_workflow_instance = get_cached_workflow()
-            session_state = cv_workflow_instance.get_session_state(st.session_state.current_session_id)
+            session_state = cv_workflow.get_session_state(st.session_state.current_session_id)
             if session_state:
                 st.session_state.session_state = session_state
-                st.session_state.chat_history = session_state.get('chat_history', [])
             st.session_state.last_refresh = time.time()
             st.rerun()
     
