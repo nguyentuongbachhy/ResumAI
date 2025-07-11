@@ -19,9 +19,9 @@ class GPTEvaluator:
         logger.info("Khởi tạo GPT-3.5-turbo evaluator thành công")
 
     def _create_evaluation_prompt(self, job_description: str, cv_text: str) -> str:
-        """Tạo prompt đánh giá cho GPT"""
+        """Tạo prompt đánh giá cho GPT bằng tiếng Việt"""
         prompt = dedent(f"""
-        Bạn là một chuyên gia tuyển dụng có kinh nghiệm 10+ năm. Hãy đánh giá CV sau đây dựa trên yêu cầu công việc và trả về kết quả theo định dạng JSON chính xác.
+        Bạn là một chuyên gia tuyển dụng có kinh nghiệm 10+ năm tại Việt Nam. Hãy đánh giá CV sau đây dựa trên yêu cầu công việc và trả về kết quả theo định dạng JSON chính xác bằng tiếng Việt.
 
         YÊU CẦU CÔNG VIỆC:
         {job_description}
@@ -47,7 +47,7 @@ class GPTEvaluator:
             }},
             "Điểm mạnh": ["điểm mạnh cụ thể 1", "điểm mạnh cụ thể 2", "điểm mạnh cụ thể 3"],
             "Điểm yếu": ["điểm yếu cụ thể 1", "điểm yếu cụ thể 2"],
-            "Tổng kết": "tóm tắt đánh giá chi tiết và chuyên nghiệp trong 2-3 câu"
+            "Tổng kết": "tóm tắt đánh giá chi tiết và chuyên nghiệp trong 2-3 câu bằng tiếng Việt"
         }}
 
         Lưu ý quan trọng:
@@ -55,22 +55,24 @@ class GPTEvaluator:
         - Đánh giá công bằng, khách quan dựa trên dữ liệu thực tế
         - Điểm số phải phản ánh chính xác mức độ phù hợp với yêu cầu
         - Điểm mạnh và điểm yếu phải cụ thể và có căn cứ từ CV
-        - Tổng kết phải súc tích, chuyên nghiệp
+        - Tổng kết phải súc tích, chuyên nghiệp bằng tiếng Việt
         - Trả lời bằng tiếng Việt
         - KHÔNG được bịa đặt thông tin không có trong CV
+        - Nếu CV bằng tiếng Anh, hãy đánh giá và trả lời bằng tiếng Việt
+        - Luôn sử dụng tiếng Việt trong tất cả các phần của JSON
         """)
         
         return prompt
 
     def evaluate_cv(self, job_description: str, cv_text: str) -> str:
-        """Đánh giá CV sử dụng GPT-3.5-turbo"""
+        """Đánh giá CV sử dụng GPT-3.5-turbo với phản hồi tiếng Việt"""
         try:
             prompt = self._create_evaluation_prompt(job_description, cv_text)
             
             messages = [
                 {
                     "role": "system", 
-                    "content": "Bạn là một chuyên gia tuyển dụng chuyên nghiệp với 10+ năm kinh nghiệm. Bạn luôn trả về kết quả đánh giá dưới dạng JSON chính xác, không thêm bất kỳ text nào khác. Bạn đánh giá khách quan, công bằng và chỉ dựa trên thông tin thực tế có trong CV."
+                    "content": "Bạn là một chuyên gia tuyển dụng chuyên nghiệp tại Việt Nam với 10+ năm kinh nghiệm. Bạn luôn trả về kết quả đánh giá dưới dạng JSON chính xác bằng tiếng Việt, không thêm bất kỳ text nào khác. Bạn đánh giá khách quan, công bằng và chỉ dựa trên thông tin thực tế có trong CV. Luôn sử dụng tiếng Việt cho tất cả nội dung trong JSON."
                 },
                 {
                     "role": "user",
@@ -122,7 +124,7 @@ class GPTEvaluator:
             return self._create_fallback_evaluation(str(e))
 
     def _create_fallback_evaluation(self, error_msg: str) -> str:
-        """Tạo đánh giá dự phòng khi GPT thất bại"""
+        """Tạo đánh giá dự phòng khi GPT thất bại - bằng tiếng Việt"""
         fallback = {
             "Điểm tổng": 0,
             "Phù hợp": "không phù hợp",
@@ -190,6 +192,124 @@ class GPTEvaluator:
                 results.append(self._create_fallback_evaluation(str(e)))
         
         return results
+
+    def test_connection(self) -> bool:
+        """Kiểm tra kết nối với OpenAI API"""
+        try:
+            test_response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "Bạn là trợ lý AI hữu ích."},
+                    {"role": "user", "content": "Xin chào! Đây là test kết nối."}
+                ],
+                max_tokens=50,
+                temperature=0.3
+            )
+            
+            logger.info("Kiểm tra kết nối OpenAI API thành công")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Kiểm tra kết nối OpenAI API thất bại: {e}")
+            return False
+
+    def create_detailed_prompt(self, job_description: str, cv_text: str, focus_areas: list = None) -> str:
+        """Tạo prompt chi tiết với các khu vực tập trung cụ thể"""
+        focus_text = ""
+        if focus_areas:
+            focus_text = f"\n\nKhu vực cần chú ý đặc biệt: {', '.join(focus_areas)}"
+        
+        detailed_prompt = dedent(f"""
+        Bạn là chuyên gia tuyển dụng hàng đầu tại Việt Nam với chuyên môn sâu về đánh giá ứng viên.
+        
+        YÊU CẦU CÔNG VIỆC CHI TIẾT:
+        {job_description}{focus_text}
+        
+        THÔNG TIN CV ỨNG VIÊN:
+        {cv_text}
+        
+        Hãy thực hiện đánh giá toàn diện và trả về kết quả JSON chi tiết bao gồm:
+        
+        1. PHÂN TÍCH KỸ NĂNG CHUYÊN MÔN
+        2. ĐÁNH GIÁ KINH NGHIỆM THỰC TẾ
+        3. PHÂN TÍCH MỨC ĐỘ PHÙ HỢP VỚI VĂN HÓA CÔNG TY
+        4. DỰ ĐOÁN HIỆU SUẤT CÔNG VIỆC
+        5. KHUYẾN NGHỊ PHỎNG VẤN
+        
+        Định dạng JSON trả về (bằng tiếng Việt):
+        {{
+            "Điểm tổng": [0-10],
+            "Phù hợp": "phù hợp/không phù hợp",
+            "Phân tích chi tiết": {{
+                "Kỹ năng chuyên môn": {{
+                    "Điểm": [0-10],
+                    "Nhận xét": "nhận xét chi tiết",
+                    "Kỹ năng nổi bật": ["kỹ năng 1", "kỹ năng 2"],
+                    "Kỹ năng còn thiếu": ["thiếu 1", "thiếu 2"]
+                }},
+                "Kinh nghiệm": {{
+                    "Điểm": [0-10],
+                    "Năm kinh nghiệm": số năm,
+                    "Dự án nổi bật": ["dự án 1", "dự án 2"],
+                    "Mức độ phù hợp": "thấp/trung bình/cao"
+                }},
+                "Học vấn": {{
+                    "Điểm": [0-10],
+                    "Trình độ": "mô tả trình độ",
+                    "Chứng chỉ": ["chứng chỉ 1", "chứng chỉ 2"]
+                }}
+            }},
+            "Điểm mạnh": ["điểm mạnh 1", "điểm mạnh 2", "điểm mạnh 3"],
+            "Điểm yếu": ["điểm yếu 1", "điểm yếu 2"],
+            "Khuyến nghị": {{
+                "Nên phỏng vấn": true/false,
+                "Vị trí phù hợp": "tên vị trí phù hợp",
+                "Mức lương đề xuất": "khoảng lương",
+                "Câu hỏi phỏng vấn đề xuất": ["câu hỏi 1", "câu hỏi 2", "câu hỏi 3"]
+            }},
+            "Tổng kết": "tóm tắt chi tiết bằng tiếng Việt"
+        }}
+        
+        LưU Ý: Chỉ trả về JSON hợp lệ, sử dụng tiếng Việt cho toàn bộ nội dung.
+        """)
+        
+        return detailed_prompt
+
+    def evaluate_cv_detailed(self, job_description: str, cv_text: str, focus_areas: list = None) -> str:
+        """Đánh giá CV chi tiết với nhiều thông tin hơn"""
+        try:
+            prompt = self.create_detailed_prompt(job_description, cv_text, focus_areas)
+            
+            messages = [
+                {
+                    "role": "system",
+                    "content": "Bạn là chuyên gia tuyển dụng hàng đầu tại Việt Nam. Cung cấp đánh giá CV chi tiết, chuyên nghiệp và khách quan bằng tiếng Việt. Luôn trả về JSON hợp lệ."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+            
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                max_tokens=2000,
+                temperature=0.2
+            )
+            
+            result = response.choices[0].message.content.strip()
+            
+            # Kiểm tra và trả về JSON
+            try:
+                json.loads(result)
+                return result
+            except json.JSONDecodeError:
+                return self._extract_json_from_text(result)
+                
+        except Exception as e:
+            logger.error(f"Lỗi đánh giá CV chi tiết: {e}")
+            return self._create_fallback_evaluation(str(e))
 
 # Instance toàn cục
 _gpt_evaluator = None

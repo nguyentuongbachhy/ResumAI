@@ -23,6 +23,7 @@ class DatabaseManager:
                     CREATE TABLE IF NOT EXISTS sessions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         session_id TEXT UNIQUE NOT NULL,
+                        session_title TEXT DEFAULT '',
                         job_description TEXT NOT NULL,
                         position_title TEXT DEFAULT '',
                         required_candidates INTEGER NOT NULL,
@@ -582,20 +583,27 @@ class DatabaseManager:
     # === SESSION METHODS (Updated) ===
     
     def create_session(self, session_id: str, job_description: str, required_candidates: int, 
-                      position_title: str = '') -> bool:
-        """Tạo session mới (updated)"""
+                  position_title: str = '', session_title: str = '') -> bool:
+        """Tạo session mới với session_title"""
         try:
+            # Tự động tạo session_title nếu không được cung cấp
+            if not session_title:
+                from utils import generate_smart_session_title
+                session_title = generate_smart_session_title(position_title, job_description, required_candidates)
+            
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
-                    INSERT OR REPLACE INTO sessions (session_id, job_description, position_title, required_candidates)
-                    VALUES (?, ?, ?, ?)
-                ''', (session_id, job_description, position_title, required_candidates))
+                    INSERT OR REPLACE INTO sessions 
+                    (session_id, session_title, job_description, position_title, required_candidates)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (session_id, session_title, job_description, position_title, required_candidates))
                 conn.commit()
                 
                 # Initialize analytics
                 self._update_session_analytics(session_id)
                 
+                logger.info(f"Created session with title: {session_title}")
                 return True
                 
         except Exception as e:
@@ -603,7 +611,7 @@ class DatabaseManager:
             return False
     
     def get_session(self, session_id: str) -> Optional[Dict]:
-        """Lấy thông tin session (updated)"""
+        """Lấy thông tin session với session_title"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -615,13 +623,14 @@ class DatabaseManager:
                     return {
                         'id': row[0],
                         'session_id': row[1],
-                        'job_description': row[2],
-                        'position_title': row[3],
-                        'required_candidates': row[4],
-                        'status': row[5],
-                        'created_at': row[6],
-                        'updated_at': row[7],
-                        'completed_at': row[8]
+                        'session_title': row[2] if len(row) > 2 else '',  # Backward compatibility
+                        'job_description': row[3] if len(row) > 3 else row[2],  # Adjust index based on schema
+                        'position_title': row[4] if len(row) > 4 else row[3],
+                        'required_candidates': row[5] if len(row) > 5 else row[4],
+                        'status': row[6] if len(row) > 6 else row[5],
+                        'created_at': row[7] if len(row) > 7 else row[6],
+                        'updated_at': row[8] if len(row) > 8 else row[7],
+                        'completed_at': row[9] if len(row) > 9 else row[8]
                     }
                 return None
                 
@@ -630,35 +639,137 @@ class DatabaseManager:
             return None
     
     def get_all_sessions(self) -> List[Dict]:
-        """Lấy tất cả sessions với thống kê tóm tắt (Fixed)"""
+        """Lấy tất cả sessions với session_title và thống kê tóm tắt"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Kiểm tra xem có cột session_title không
+                cursor.execute("PRAGMA table_info(sessions)")
+                columns = [column[1] for column in cursor.fetchall()]
+                has_session_title = 'session_title' in columns
+                
+                if has_session_title:
+                    cursor.execute('''
+                        SELECT s.session_id, s.session_title, s.job_description, s.position_title, 
+                            s.required_candidates, s.created_at,
+                            COUNT(DISTINCT f.id) as total_cvs,
+                            COUNT(DISTINCT e.id) as total_evaluations
+                        FROM sessions s
+                        LEFT JOIN files f ON s.session_id = f.session_id
+                        LEFT JOIN evaluations e ON s.session_id = e.session_id
+                        GROUP BY s.session_id, s.session_title, s.job_description, s.position_title, 
+                                s.required_candidates, s.created_at
+                        ORDER BY s.created_at DESC
+                    ''')
+                    
+                    rows = cursor.fetchall()
+                    return [
+                        {
+                            'session_id': row[0],
+                            'session_title': row[1] or 'Phiên không có tên',
+                            'job_description': row[2][:100] + '...' if len(row[2]) > 100 else row[2],
+                            'position_title': row[3] or 'N/A',
+                            'required_candidates': row[4],
+                            'created_at': row[5],
+                            'total_cvs': row[6],
+                            'total_evaluations': row[7]
+                        }
+                        for row in rows
+                    ]
+                else:
+                    # Fallback cho database cũ
+                    cursor.execute('''
+                        SELECT s.session_id, s.job_description, s.position_title, s.required_candidates, s.created_at,
+                            COUNT(DISTINCT f.id) as total_cvs,
+                            COUNT(DISTINCT e.id) as total_evaluations
+                        FROM sessions s
+                        LEFT JOIN files f ON s.session_id = f.session_id
+                        LEFT JOIN evaluations e ON s.session_id = e.session_id
+                        GROUP BY s.session_id, s.job_description, s.position_title, s.required_candidates, s.created_at
+                        ORDER BY s.created_at DESC
+                    ''')
+                    
+                    rows = cursor.fetchall()
+                    return [
+                        {
+                            'session_id': row[0],
+                            'session_title': f"{row[2]} - {row[0][:8]}" if row[2] else f"Phiên {row[0][:8]}",
+                            'job_description': row[1][:100] + '...' if len(row[1]) > 100 else row[1],
+                            'position_title': row[2] or 'N/A',
+                            'required_candidates': row[3],
+                            'created_at': row[4],
+                            'total_cvs': row[5],
+                            'total_evaluations': row[6]
+                        }
+                        for row in rows
+                    ]
+        except Exception as e:
+            logger.error(f"Error getting all sessions: {e}")
+            return []
+
+    def update_session_title(self, session_id: str, new_title: str) -> bool:
+        """Cập nhật session title"""
+        try:
+            from utils import validate_session_title
+            
+            if not validate_session_title(new_title):
+                logger.error(f"Invalid session title: {new_title}")
+                return False
+            
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    UPDATE sessions 
+                    SET session_title = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE session_id = ?
+                ''', (new_title, session_id))
+                conn.commit()
+                
+                if cursor.rowcount > 0:
+                    logger.info(f"Updated session title to: {new_title}")
+                    return True
+                else:
+                    logger.warning(f"No session found with ID: {session_id}")
+                    return False
+                
+        except Exception as e:
+            logger.error(f"Error updating session title: {e}")
+            return False
+
+    def search_sessions_by_title(self, search_term: str) -> List[Dict]:
+        """Tìm kiếm sessions theo title"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
-                    SELECT s.session_id, s.job_description, s.position_title, s.required_candidates, s.created_at,
-                           COUNT(DISTINCT f.id) as total_cvs,
-                           COUNT(DISTINCT e.id) as total_evaluations
+                    SELECT s.session_id, s.session_title, s.position_title, s.created_at,
+                        COUNT(DISTINCT f.id) as total_cvs,
+                        COUNT(DISTINCT e.id) as total_evaluations
                     FROM sessions s
                     LEFT JOIN files f ON s.session_id = f.session_id
                     LEFT JOIN evaluations e ON s.session_id = e.session_id
-                    GROUP BY s.session_id, s.job_description, s.position_title, s.required_candidates, s.created_at
+                    WHERE s.session_title LIKE ? OR s.position_title LIKE ?
+                    GROUP BY s.session_id, s.session_title, s.position_title, s.created_at
                     ORDER BY s.created_at DESC
-                ''')
+                    LIMIT 20
+                ''', (f'%{search_term}%', f'%{search_term}%'))
+                
                 rows = cursor.fetchall()
                 return [
                     {
                         'session_id': row[0],
-                        'job_description': row[1][:100] + '...' if len(row[1]) > 100 else row[1],
+                        'session_title': row[1] or 'Phiên không có tên',
                         'position_title': row[2] or 'N/A',
-                        'required_candidates': row[3],
-                        'created_at': row[4],
-                        'total_cvs': row[5],
-                        'total_evaluations': row[6]
+                        'created_at': row[3],
+                        'total_cvs': row[4],
+                        'total_evaluations': row[5]
                     }
                     for row in rows
                 ]
+                
         except Exception as e:
-            logger.error(f"Error getting all sessions: {e}")
+            logger.error(f"Error searching sessions: {e}")
             return []
 
     def delete_session(self, session_id: str) -> bool:
