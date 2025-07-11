@@ -621,7 +621,9 @@ st.markdown("""
     }
     
     .file-card {
+        color: white;
         background: var(--bg-primary);
+        font-weight: 500;
         padding: 2rem;
         border-radius: var(--radius-lg);
         border: 1px solid var(--gray-200);
@@ -1656,19 +1658,22 @@ def render_session_info():
         
         # Chi tiết phiên
         if session_info:
-            st.markdown(f"**🎯 Vị trí:** {session_info.get('position_title', 'N/A')}")
-            st.markdown(f"**📅 Tạo lúc:** {format_datetime(session_info.get('created_at', ''))}")
-            st.markdown(f"**👥 Cần tuyển:** {session_info.get('required_candidates', 'N/A')} người")
-            st.markdown(f"**⚡ Trạng thái:** {session_info.get('status', 'đang hoạt động').title()}")
+            st.markdown(f"<p style='color: white;'><strong>🎯 Vị trí:</strong> {session_info.get('position_title', 'N/A')}</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='color: white;'><strong>📅 Tạo lúc:</strong> {format_datetime(session_info.get('created_at', ''))}</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='color: white;'><strong>👥 Cần tuyển:</strong> {session_info.get('required_candidates', 'N/A')} người</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='color: white;'><strong>⚡ Trạng thái:</strong> {session_info.get('status', 'đang hoạt động').title()}</p>", unsafe_allow_html=True)
+
         
         st.markdown("---")
         
-        # Thống kê xử lý (giữ nguyên phần còn lại)
+        # Thống kê xử lý
         if analytics:
-            st.markdown("### 📈 Thống kê xử lý")
-            
+            st.markdown("""
+                <h3 style='color: white; font-weight: 600; text-shadow: 1px 1px 2px #000;'>📈 Thống kê xử lý</h3>
+            """, unsafe_allow_html=True)
+
             col1, col2, col3 = st.columns(3)
-            
+
             with col1:
                 st.markdown(f"""
                 <div class="metric-card">
@@ -1696,8 +1701,9 @@ def render_session_info():
         # Kết quả đánh giá
         if 'final_results' in session and session['final_results']:
             results = session['final_results']
-            
-            st.markdown("### 📊 Kết quả đánh giá")
+            st.markdown("""
+                <h3 style='color: white; font-weight: 600; text-shadow: 1px 1px 2px #000;'>📊 Kết quả đánh giá</h3>
+            """, unsafe_allow_html=True)
             
             col1, col2 = st.columns(2)
             with col1:
@@ -1765,9 +1771,10 @@ def render_quick_actions():
         
         if st.button("📋 Yêu cầu phân tích AI", use_container_width=True):
             render_ai_report()
-        
-        st.markdown("### 📧 Thao tác email")
-        
+        st.markdown("""
+            <h3 style='color: white; font-weight: 600; text-shadow: 1px 1px 2px #000;'>📧 Thao tác email</h3>
+        """, unsafe_allow_html=True)
+
         qualified_count = results.get('qualified_count', 0)
         rejected_count = results.get('total_cvs', 0) - qualified_count
         
@@ -1781,8 +1788,10 @@ def render_quick_actions():
             if st.button(f"✅ Phỏng vấn\n({qualified_count})", use_container_width=True):
                 schedule_interview_emails_manual()
         
-        st.markdown("### 📤 Tùy chọn xuất")
-        
+        st.markdown("""
+            <h3 style='color: white; font-weight: 600; text-shadow: 1px 1px 2px #000;'>📤 Tùy chọn xuất</h3>
+        """, unsafe_allow_html=True)
+
         col1, col2 = st.columns(2)
         
         with col1:

@@ -107,10 +107,20 @@ class GeminiOCR:
                 temp_dir = os.getenv("TEMP_DIR", "./temp")
                 os.makedirs(temp_dir, exist_ok=True)
                 
-                # Lưu hình ảnh tạm thời với chất lượng cao
+                # Lưu hình ảnh tạm thời - FIXED: Removed quality parameter
                 image_path = os.path.join(temp_dir, f"{Path(pdf_path).stem}_trang_{page_num + 1}.jpg")
-                pix.save(image_path, quality=95)  # Chất lượng cao
+                pix.save(image_path)  # Removed quality parameter as it's not supported
                 temp_files.append(image_path)
+                
+                # Optimize image quality after saving with PIL if needed
+                try:
+                    # Re-save with PIL for better quality control
+                    img = Image.open(image_path)
+                    img.save(image_path, "JPEG", quality=95, optimize=True)
+                    logger.debug(f"Optimized image quality for {image_path}")
+                except Exception as opt_e:
+                    logger.debug(f"Could not optimize image {image_path}: {opt_e}")
+                    # Continue with original image if optimization fails
                 
                 # Trích xuất văn bản từ hình ảnh
                 logger.info(f"Đang OCR trang {page_num + 1}...")
@@ -219,45 +229,6 @@ class GeminiOCR:
         logger.info(f"Hoàn thành batch OCR: {successful}/{len(file_paths)} file thành công")
         
         return results
-
-    def test_connection(self) -> bool:
-        """Kiểm tra kết nối với Gemini API"""
-        try:
-            # Tạo một hình ảnh test đơn giản với văn bản
-            from PIL import Image, ImageDraw, ImageFont
-            
-            # Tạo ảnh test 200x100 với nền trắng
-            test_image = Image.new('RGB', (200, 100), color='white')
-            draw = ImageDraw.Draw(test_image)
-            
-            # Thêm văn bản test
-            try:
-                # Thử sử dụng font hệ thống
-                font = ImageFont.load_default()
-            except:
-                font = None
-            
-            draw.text((10, 40), "TEST OCR", fill='black', font=font)
-            
-            # Test với Gemini
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=[test_image, "Đọc văn bản trong hình ảnh này"]
-            )
-            
-            result_text = response.text.strip()
-            
-            # Kiểm tra xem có đọc được "TEST" không
-            if "TEST" in result_text.upper():
-                logger.info("Kiểm tra kết nối Gemini API thành công")
-                return True
-            else:
-                logger.warning(f"Gemini API hoạt động nhưng kết quả OCR không chính xác: {result_text}")
-                return False
-            
-        except Exception as e:
-            logger.error(f"Kiểm tra kết nối Gemini API thất bại: {e}")
-            return False
 
     def analyze_image_quality(self, image_path: str) -> Dict[str, any]:
         """Phân tích chất lượng hình ảnh cho OCR"""
