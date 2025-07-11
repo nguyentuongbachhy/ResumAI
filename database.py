@@ -13,12 +13,12 @@ class DatabaseManager:
         self.init_database()
     
     def init_database(self):
-        """Initialize database with required tables"""
+        """Khởi tạo database với các bảng cần thiết"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                # Sessions table
+                # Bảng sessions
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS sessions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,7 +30,7 @@ class DatabaseManager:
                     )
                 ''')
                 
-                # CVs table
+                # Bảng CVs
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS cvs (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,7 +44,7 @@ class DatabaseManager:
                     )
                 ''')
                 
-                # Evaluations table
+                # Bảng evaluations
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS evaluations (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,13 +60,13 @@ class DatabaseManager:
                 ''')
                 
                 conn.commit()
-                logger.info("Database initialized successfully")
+                logger.info("Khởi tạo database thành công")
         except Exception as e:
-            logger.error(f"Error initializing database: {e}")
+            logger.error(f"Lỗi khởi tạo database: {e}")
             raise
     
     def create_session(self, session_id: str, job_description: str, required_candidates: int) -> bool:
-        """Create a new evaluation session"""
+        """Tạo session đánh giá mới"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -77,11 +77,11 @@ class DatabaseManager:
                 conn.commit()
                 return True
         except Exception as e:
-            logger.error(f"Error creating session: {e}")
+            logger.error(f"Lỗi tạo session: {e}")
             return False
     
     def get_session(self, session_id: str) -> Optional[Dict]:
-        """Get session information"""
+        """Lấy thông tin session"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -100,11 +100,11 @@ class DatabaseManager:
                     }
                 return None
         except Exception as e:
-            logger.error(f"Error getting session: {e}")
+            logger.error(f"Lỗi lấy session: {e}")
             return None
     
     def add_cv(self, session_id: str, filename: str, file_path: str, file_type: str, extracted_info: str = None) -> int:
-        """Add a CV to the database"""
+        """Thêm CV vào database"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -115,11 +115,11 @@ class DatabaseManager:
                 conn.commit()
                 return cursor.lastrowid
         except Exception as e:
-            logger.error(f"Error adding CV: {e}")
+            logger.error(f"Lỗi thêm CV: {e}")
             return -1
     
     def update_cv_info(self, cv_id: int, extracted_info: str) -> bool:
-        """Update CV extracted information"""
+        """Cập nhật thông tin trích xuất CV"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -129,12 +129,19 @@ class DatabaseManager:
                 conn.commit()
                 return True
         except Exception as e:
-            logger.error(f"Error updating CV info: {e}")
+            logger.error(f"Lỗi cập nhật thông tin CV: {e}")
             return False
     
     def add_evaluation(self, session_id: str, cv_id: int, score: float, evaluation_text: str, is_passed: bool) -> bool:
-        """Add evaluation result"""
+        """Thêm kết quả đánh giá"""
         try:
+            # Đảm bảo các tham số có đúng kiểu dữ liệu
+            session_id = str(session_id)
+            cv_id = int(cv_id)
+            score = float(score)
+            evaluation_text = str(evaluation_text)
+            is_passed = bool(is_passed)
+            
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
@@ -142,13 +149,15 @@ class DatabaseManager:
                     VALUES (?, ?, ?, ?, ?)
                 ''', (session_id, cv_id, score, evaluation_text, is_passed))
                 conn.commit()
+                logger.info(f"Đã thêm đánh giá cho CV {cv_id} với điểm {score}")
                 return True
         except Exception as e:
-            logger.error(f"Error adding evaluation: {e}")
+            logger.error(f"Lỗi thêm đánh giá: {e}")
+            logger.error(f"Parameters: session_id={session_id}, cv_id={cv_id}, score={score}, is_passed={is_passed}")
             return False
     
     def get_session_results(self, session_id: str) -> List[Dict]:
-        """Get all evaluation results for a session"""
+        """Lấy tất cả kết quả đánh giá cho một session"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -164,23 +173,23 @@ class DatabaseManager:
                     {
                         'filename': row[0],
                         'extracted_info': row[1],
-                        'score': row[2],
+                        'score': float(row[2]),  # Đảm bảo score là float
                         'evaluation_text': row[3],
-                        'is_passed': row[4],
+                        'is_passed': bool(row[4]),  # Đảm bảo is_passed là boolean
                         'created_at': row[5]
                     }
                     for row in rows
                 ]
         except Exception as e:
-            logger.error(f"Error getting session results: {e}")
+            logger.error(f"Lỗi lấy kết quả session: {e}")
             return []
     
     def get_all_sessions(self) -> List[Dict]:
-        """Get all sessions with summary statistics"""
+        """Lấy tất cả sessions với thống kê tóm tắt"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                # Fixed: Qualify column names to avoid ambiguity
+                # Sửa lỗi: Qualify column names để tránh ambiguity
                 cursor.execute('''
                     SELECT s.session_id, s.job_description, s.required_candidates, s.created_at,
                            COUNT(DISTINCT c.id) as total_cvs,
@@ -204,38 +213,38 @@ class DatabaseManager:
                     for row in rows
                 ]
         except Exception as e:
-            logger.error(f"Error getting all sessions: {e}")
+            logger.error(f"Lỗi lấy tất cả sessions: {e}")
             return []
 
     def delete_session(self, session_id: str) -> bool:
-        """Delete a session and all related data"""
+        """Xóa session và tất cả dữ liệu liên quan"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                # Delete evaluations first (foreign key constraint)
+                # Xóa evaluations trước (foreign key constraint)
                 cursor.execute('DELETE FROM evaluations WHERE session_id = ?', (session_id,))
                 
-                # Delete CVs
+                # Xóa CVs
                 cursor.execute('DELETE FROM cvs WHERE session_id = ?', (session_id,))
                 
-                # Delete session
+                # Xóa session
                 cursor.execute('DELETE FROM sessions WHERE session_id = ?', (session_id,))
                 
                 conn.commit()
-                logger.info(f"Deleted session {session_id} and all related data")
+                logger.info(f"Đã xóa session {session_id} và tất cả dữ liệu liên quan")
                 return True
         except Exception as e:
-            logger.error(f"Error deleting session: {e}")
+            logger.error(f"Lỗi xóa session: {e}")
             return False
 
     def get_database_stats(self) -> Dict:
-        """Get database statistics"""
+        """Lấy thống kê database"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                # Get total counts
+                # Lấy tổng số
                 cursor.execute('SELECT COUNT(*) FROM sessions')
                 total_sessions = cursor.fetchone()[0]
                 
@@ -245,7 +254,7 @@ class DatabaseManager:
                 cursor.execute('SELECT COUNT(*) FROM evaluations')
                 total_evaluations = cursor.fetchone()[0]
                 
-                # Get average score
+                # Lấy điểm trung bình
                 cursor.execute('SELECT AVG(score) FROM evaluations')
                 avg_score = cursor.fetchone()[0] or 0
                 
@@ -253,10 +262,10 @@ class DatabaseManager:
                     'total_sessions': total_sessions,
                     'total_cvs': total_cvs,
                     'total_evaluations': total_evaluations,
-                    'average_score': round(avg_score, 2)
+                    'average_score': round(float(avg_score), 2)
                 }
         except Exception as e:
-            logger.error(f"Error getting database stats: {e}")
+            logger.error(f"Lỗi lấy thống kê database: {e}")
             return {
                 'total_sessions': 0,
                 'total_cvs': 0,
@@ -264,5 +273,5 @@ class DatabaseManager:
                 'average_score': 0
             }
 
-# Global database instance
+# Instance toàn cục
 db_manager = DatabaseManager()
