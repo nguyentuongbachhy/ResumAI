@@ -300,14 +300,35 @@ class CVEvaluationWorkflow:
             return {"status": "lỗi", "error": str(e)}
 
     def _finalize_results(self, session_id: str, evaluations: List[Dict], required_candidates: int) -> Dict:
-        """Hoàn thiện kết quả với tóm tắt cơ sở dữ liệu"""
+        """Hoàn thiện kết quả với tóm tắt cơ sở dữ liệu - FIXED để merge tất cả evaluations"""
         logger.info("Đang hoàn thiện kết quả đánh giá...")
 
         try:
-            # Sắp xếp đánh giá theo điểm
-            sorted_evaluations = sorted(evaluations, key=lambda x: x["score"], reverse=True)
+            # **FIX: Lấy TẤT CẢ evaluations trong session từ database**
+            all_session_results = db_manager.get_session_results(session_id)
             
-            # Tính toán thống kê
+            # Convert database results to evaluation format
+            all_evaluations = []
+            for result in all_session_results:
+                evaluation = {
+                    "filename": result.get('filename', ''),
+                    "score": result.get('score', 0),
+                    "is_qualified": result.get('is_qualified', False),
+                    "evaluation_text": result.get('evaluation_json', ''),
+                    "extracted_text": result.get('extracted_text', ''),
+                    "file_path": result.get('file_path', ''),
+                    "evaluation_timestamp": result.get('evaluation_timestamp', '')
+                }
+                all_evaluations.append(evaluation)
+            
+            # **FIX: Nếu không có evaluations từ database, sử dụng evaluations hiện tại**
+            if not all_evaluations:
+                all_evaluations = evaluations
+            
+            # Sắp xếp đánh giá theo điểm
+            sorted_evaluations = sorted(all_evaluations, key=lambda x: x["score"], reverse=True)
+            
+            # Tính toán thống kê cho TẤT CẢ evaluations
             total_cvs = len(sorted_evaluations)
             qualified_count = sum(1 for e in sorted_evaluations if e["is_qualified"])
             avg_score = sum(e["score"] for e in sorted_evaluations) / total_cvs if total_cvs > 0 else 0
@@ -328,12 +349,14 @@ class CVEvaluationWorkflow:
                 "rejected_candidates": [e for e in sorted_evaluations if not e["is_qualified"]]
             }
 
-            # Thêm tin nhắn tóm tắt
+            # Thêm tin nhắn tóm tắt với số liệu chính xác
             self._add_chat_message(
                 session_id, 
                 'summary', 
                 f"📊 Hoàn thành đánh giá: {qualified_count}/{total_cvs} đạt yêu cầu (Trung bình: {avg_score:.1f}/10)"
             )
+
+            logger.info(f"Finalized results: {total_cvs} total CVs, {qualified_count} qualified")
 
             return {
                 "status": "đã hoàn thiện kết quả",
@@ -346,15 +369,17 @@ class CVEvaluationWorkflow:
             return {"status": "lỗi", "error": str(e)}
 
     def run_evaluation(self, session_id: str, job_description: str, required_candidates: int, 
-                      uploaded_files: List[Dict], position_title: str = None) -> Dict:
-        """Chạy quy trình đánh giá hoàn chỉnh với tích hợp cơ sở dữ liệu"""
+                  uploaded_files: List[Dict], position_title: str = None) -> Dict:
+        """Chạy quy trình đánh giá hoàn chỉnh với tích hợp cơ sở dữ liệu - FIXED"""
         try:
             logger.info(f"Bắt đầu quy trình đánh giá cho phiên {session_id}")
             
-            # Bước 1: Khởi tạo phiên
-            init_result = self._init_session(session_id, job_description, required_candidates, position_title)
-            if init_result["status"] == "lỗi":
-                return {"success": False, "error": init_result["error"]}
+            # Bước 1: Khởi tạo phiên (chỉ khi chưa tồn tại)
+            existing_session = db_manager.get_session(session_id)
+            if not existing_session:
+                init_result = self._init_session(session_id, job_description, required_candidates, position_title)
+                if init_result["status"] == "lỗi":
+                    return {"success": False, "error": init_result["error"]}
             
             # Bước 2: Xử lý file
             process_result = self._process_files(session_id, uploaded_files)
@@ -371,10 +396,12 @@ class CVEvaluationWorkflow:
             if eval_result["status"] == "lỗi":
                 return {"success": False, "error": eval_result["error"]}
             
-            # Bước 5: Hoàn thiện kết quả
+            # Bước 5: Hoàn thiện kết quả (FIXED - sẽ merge với evaluations có sẵn)
             final_result = self._finalize_results(session_id, eval_result["evaluations"], required_candidates)
             if final_result["status"] == "lỗi":
                 return {"success": False, "error": final_result["error"]}
+
+            db_manager._update_session_analytics_comprehensive(session_id)
 
             # Lấy lịch sử chat từ cơ sở dữ liệu
             chat_history = db_manager.get_chat_history(session_id)

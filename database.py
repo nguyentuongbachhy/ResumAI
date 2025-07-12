@@ -837,6 +837,50 @@ class DatabaseManager:
             self.update_file_extraction(file_id, extracted_info)
         return file_id
     
+    def _update_session_analytics_comprehensive(self, session_id: str) -> None:
+        """Cập nhật analytics session dựa trên tất cả dữ liệu hiện tại"""
+        try:
+            # Lấy tất cả dữ liệu từ database
+            all_results = db_manager.get_session_results(session_id)
+            all_files = db_manager.get_session_files(session_id)
+            chat_messages = db_manager.get_chat_history(session_id)
+            
+            if all_results:
+                # Tính toán lại statistics
+                total_evaluations = len(all_results)
+                qualified_count = sum(1 for r in all_results if r.get('is_qualified', False))
+                total_score = sum(r.get('score', 0) for r in all_results)
+                avg_score = total_score / total_evaluations if total_evaluations > 0 else 0
+                
+                # Update analytics trong database
+                with sqlite3.connect(db_manager.db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        UPDATE session_analytics 
+                        SET total_files_uploaded = ?,
+                            total_files_processed = ?,
+                            total_evaluations = ?,
+                            qualified_candidates = ?,
+                            average_score = ?,
+                            total_chat_messages = ?,
+                            last_activity_timestamp = CURRENT_TIMESTAMP
+                        WHERE session_id = ?
+                    ''', (
+                        len(all_files),
+                        len([f for f in all_files if f.get('processing_status') == 'text_extracted']),
+                        total_evaluations,
+                        qualified_count,
+                        avg_score,
+                        len(chat_messages),
+                        session_id
+                    ))
+                    conn.commit()
+                    
+            logger.info(f"Updated comprehensive analytics for session {session_id}")
+            
+        except Exception as e:
+            logger.error(f"Error updating comprehensive analytics: {e}")
+
     def update_cv_info(self, cv_id: int, extracted_info: str) -> bool:
         """Backward compatibility method for update_cv_info"""
         return self.update_file_extraction(cv_id, extracted_info)

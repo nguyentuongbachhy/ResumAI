@@ -127,6 +127,19 @@ st.markdown("""
         color: var(--text-primary);
         line-height: 1.6;
     }
+
+    html, body, [class*="css"] {
+        color: white !important;
+    }
+    .st-emotion-cache-1avcm0n {  /* st.write / st.text / st.markdown container */
+        color: white !important;
+    }
+    .st-emotion-cache-1kyxreq {  /* subheader hoặc header */
+        color: white !important;
+    }
+    .stMarkdown, .stText, .stSubheader, .stHeader {
+        color: white !important;
+    }
     
     /* Remove default Streamlit styles */
     #MainMenu {visibility: hidden;}
@@ -547,7 +560,6 @@ st.markdown("""
         display: block;
         background: linear-gradient(135deg, var(--primary-blue) 0%, var(--secondary-indigo) 100%);
         -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
         background-clip: text;
         position: relative;
         z-index: 1;
@@ -620,6 +632,22 @@ st.markdown("""
         margin: 2rem 0;
     }
     
+    .stFileUploader div[data-testid="fileUploader"] div {
+        color: white !important;
+        font-weight: 700 !important;
+        font-size: 0.95rem !important;
+    }
+    
+    .stFileUploader div[data-testid="fileUploader"] span,
+    .stFileUploader div[data-testid="fileUploader"] p {
+        color: white !important;
+        font-weight: 700 !important;
+    }
+    
+    div[data-testid="fileUploader"] * {
+        color: white !important;
+    }
+
     .file-card {
         background: var(--bg-primary);
         font-weight: 500;
@@ -668,7 +696,6 @@ st.markdown("""
     
     .file-card .file-name {
         font-weight: 600;
-        color: white;
         margin-bottom: 0.75rem;
         word-break: break-word;
         font-size: 0.95rem;
@@ -1021,6 +1048,47 @@ st.markdown("""
             box-shadow: none !important;
             border: 1px solid #000 !important;
         }
+    }
+
+    stFileUploader,
+    .stFileUploader *,
+    [data-testid="fileUploader"],
+    [data-testid="fileUploader"] * {
+        color: white !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Tên file */
+    div[data-testid="fileUploader"] span,
+    div[data-testid="fileUploader"] div[class*="uploadedFile"] span {
+        color: white !important;
+        font-weight: 800 !important;
+        text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5) !important;
+    }
+    
+    /* Kích thước file */
+    div[data-testid="fileUploader"] span[class*="fileSize"] {
+        color: #e2e8f0 !important;
+        font-weight: 600 !important;
+        font-family: 'JetBrains Mono', monospace !important;
+    }
+    
+    /* Hover effect cho file items */
+    div[data-testid="fileUploader"] div[class*="uploadedFile"]:hover {
+        background: rgba(255, 255, 255, 0.1) !important;
+        border-radius: 6px !important;
+        transition: background 0.3s ease !important;
+    }
+    
+    div[data-testid="fileUploader"] div[class*="uploadedFile"]:hover * {
+        color: #ffd700 !important;
+    }
+    
+    /* Nút xóa file (X) */
+    div[data-testid="fileUploader"] button[aria-label*="Remove"]:hover {
+        color: white !important;
+        background: #ff6b6b !important;
+        transform: scale(1.1) !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -2027,12 +2095,13 @@ def render_detailed_results(results: Dict):
     st.subheader("📊 Kết quả đánh giá chi tiết")
     
     # Chỉ số tóm tắt
-    col1, col2, col3, col4 = st.columns(4)
-    
+    col1, col2 = st.columns(2)
     with col1:
         st.metric("📋 Tổng CV", results.get("total_cvs", 0))
     with col2:
         st.metric("✅ Đạt yêu cầu", results.get("qualified_count", 0))
+
+    col3, col4 = st.columns(2)
     with col3:
         st.metric("📊 Điểm trung bình", f"{results.get('average_score', 0):.1f}/10")
     with col4:
@@ -2040,9 +2109,32 @@ def render_detailed_results(results: Dict):
         st.metric("📈 Tỷ lệ đạt", f"{qualification_rate}%")
     
     # Ứng viên hàng đầu
+    st.markdown("""
+        <style>
+        section[data-testid="stSidebar"] h3, 
+        h3 {
+            color: white !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
     st.subheader("🏆 Ứng viên hàng đầu")
     top_candidates = results.get("top_candidates", [])
-    
+    st.markdown("""
+        <style>
+        * [data-testid="expander-header"],
+        * [data-testid="expander-header"] *,
+        .stExpander * {
+            color: white !important;
+            font-weight: 700 !important;
+        }
+
+        /* Hover effect */
+        * [data-testid="expander-header"]:hover,
+        * [data-testid="expander-header"]:hover * {
+            color: #ff4444 !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
     for i, candidate in enumerate(top_candidates, 1):
         with st.expander(f"#{i} - {candidate.get('filename', 'Không rõ')} {format_score(candidate.get('score', 0))}"):
             col1, col2 = st.columns([1, 2])
@@ -2077,7 +2169,16 @@ def render_detailed_results(results: Dict):
                         st.write(evaluation_text[:200] + "..." if len(evaluation_text) > 200 else evaluation_text)
     
     # Biểu đồ phân bổ điểm
-    st.subheader("📈 Phân bổ điểm số")
+    st.markdown("""
+        <style>
+        .white-text {
+            color: white !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # Dùng HTML để tạo subheader màu trắng
+    st.markdown('<h3 class="white-text">📈 Phân bổ điểm số</h3>', unsafe_allow_html=True)
     all_evaluations = results.get("all_evaluations", [])
     
     if all_evaluations:
