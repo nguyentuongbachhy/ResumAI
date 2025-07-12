@@ -1335,14 +1335,6 @@ def render_sidebar():
                 st.write(f"**Tổng phiên:** {db_stats.get('total_sessions', 0)}")
                 st.write(f"**Tổng CV:** {db_stats.get('total_cvs', 0)}")
                 st.write(f"**Điểm TB toàn hệ thống:** {db_stats.get('average_score', 0):.1f}")
-                
-                # Thêm nút migrate old sessions
-                if st.button("🔄 Tạo title cho phiên cũ", use_container_width=True):
-                    updated = cv_workflow.migrate_old_sessions_to_titles()
-                    if updated > 0:
-                        st.success(f"✅ Đã tạo title cho {updated} phiên!")
-                    else:
-                        st.info("Tất cả phiên đã có title")
             else:
                 st.write("Không có dữ liệu")
         
@@ -1365,7 +1357,7 @@ def render_header():
     """, unsafe_allow_html=True)
 
 def render_chat_interface():
-    """Hiển thị giao diện chat chính"""
+    """Hiển thị giao diện chat chính - Chat ở dưới, File upload ở trên"""
     st.markdown('<div class="content-area">', unsafe_allow_html=True)
     
     if not st.session_state.current_session_id:
@@ -1377,12 +1369,51 @@ def render_chat_interface():
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        render_chat_messages()
+        # 1. File upload area ở trên
         render_file_upload_area()
+        
+        # 2. Kết quả tóm tắt nếu có (giữa upload và chat)
+        if st.session_state.session_state and st.session_state.session_state.get('final_results'):
+            render_session_results_summary()
+        
+        # 3. Chat interface ở dưới
+        render_chat_messages()
     
     with col2:
         render_session_info()
         render_quick_actions()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def render_session_results_summary():
+    """Hiển thị tóm tắt kết quả ngắn gọn"""
+    results = st.session_state.session_state['final_results']
+    
+    # Header
+    st.markdown("""
+    <div class="session-results-summary">
+        <div class="card-header">
+            <div class="card-icon">📊</div>
+            <h3 style="color: white;">Kết quả đánh giá</h3>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("📋 Tổng CV", results.get("total_cvs", 0))
+    with col2:
+        st.metric("✅ Đạt yêu cầu", results.get("qualified_count", 0))
+    with col3:
+        st.metric("📊 Điểm TB", f"{results.get('average_score', 0):.1f}/10")
+    with col4:
+        qualification_rate = results.get("summary", {}).get("qualification_rate", 0)
+        st.metric("📈 Tỷ lệ đạt", f"{qualification_rate}%")
+    
+    # Action button
+    if st.button("👁️ Xem chi tiết kết quả", use_container_width=True, key="view_detailed_results"):
+        render_detailed_results(results)
     
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1463,122 +1494,756 @@ def render_welcome_screen():
     """, unsafe_allow_html=True)
 
 def render_chat_messages():
-    """Hiển thị chat đã sửa lỗi HTML - không có vấn đề khoảng trắng"""
+    """Render chat messages - Từng message riêng biệt để tránh whitespace"""
+    
+    # CSS cho chat - Tách riêng để rõ ràng
     st.markdown("""
-        <h2 style='color: white;'>💬 Cuộc trò chuyện với Trợ lý AI</h2>
+    <style>
+    .enhanced-chat-container {
+        background: white;
+        border: 2px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 1.5rem;
+        max-height: 450px;
+        overflow-y: auto;
+        margin: 1rem 0;
+        scroll-behavior: smooth;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        position: relative;
+    }
+    
+    .enhanced-chat-container::-webkit-scrollbar {
+        width: 8px;
+    }
+    
+    .enhanced-chat-container::-webkit-scrollbar-track {
+        background: #f1f5f9;
+        border-radius: 4px;
+    }
+    
+    .enhanced-chat-container::-webkit-scrollbar-thumb {
+        background: linear-gradient(180deg, #cbd5e1 0%, #94a3b8 100%);
+        border-radius: 4px;
+    }
+    
+    .chat-message {
+        margin: 1rem 0;
+        padding: 1.25rem;
+        border-radius: 16px;
+        font-size: 14px;
+        line-height: 1.6;
+        position: relative;
+        word-wrap: break-word;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        animation: messageSlideIn 0.4s ease-out;
+    }
+    
+    @keyframes messageSlideIn {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .chat-message:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        transition: all 0.3s ease;
+    }
+    
+    .msg-system {
+        background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+        border-left: 4px solid #3b82f6;
+        margin-right: 15%;
+        color: #1e40af !important;
+    }
+    
+    .msg-user {
+        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        border-right: 4px solid #64748b;
+        margin-left: 15%;
+        text-align: right;
+        color: #334155 !important;
+    }
+    
+    .msg-result {
+        background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+        border-left: 4px solid #22c55e;
+        margin-right: 15%;
+        color: #15803d !important;
+    }
+    
+    .msg-error {
+        background: linear-gradient(135deg, #fef2f2 0%, #fecaca 100%);
+        border-left: 4px solid #ef4444;
+        margin-right: 15%;
+        color: #dc2626 !important;
+    }
+    
+    .msg-summary {
+        background: linear-gradient(135deg, #fffbeb 0%, #fed7aa 100%);
+        border-left: 4px solid #f59e0b;
+        margin-right: 15%;
+        font-weight: 600;
+        color: #d97706 !important;
+    }
+    
+    .msg-time {
+        font-size: 11px;
+        opacity: 0.7;
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    
+    .msg-content {
+        font-weight: 500;
+        word-wrap: break-word;
+        line-height: 1.6;
+        color: inherit !important;
+    }
+    
+    .empty-chat-state {
+        text-align: center;
+        padding: 3rem 2rem;
+        background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%);
+        border-radius: 16px;
+        border: 2px dashed #d1d5db;
+        margin: 1rem 0;
+        color: #000000;
+    }
+    
+    .empty-chat-icon {
+        font-size: 4rem;
+        margin-bottom: 1rem;
+        opacity: 0.6;
+        display: block;
+    }
+    
+    .scroll-to-bottom {
+        position: absolute;
+        bottom: 15px;
+        right: 15px;
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 45px;
+        height: 45px;
+        cursor: pointer;
+        font-size: 20px;
+        opacity: 0.8;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        z-index: 10;
+    }
+    
+    .scroll-to-bottom:hover {
+        opacity: 1;
+        transform: translateY(-2px);
+    }
+    
+    @media (max-width: 768px) {
+        .enhanced-chat-container {
+            max-height: 350px;
+            padding: 1rem;
+        }
+        
+        .chat-message {
+            margin: 0.75rem 0;
+            padding: 1rem;
+            border-radius: 12px;
+        }
+        
+        .msg-system, .msg-result, .msg-error, .msg-summary {
+            margin-right: 10%;
+        }
+        
+        .msg-user {
+            margin-left: 10%;
+        }
+    }
+    </style>
     """, unsafe_allow_html=True)
     
-    # Tải lịch sử chat mới từ cơ sở dữ liệu
+    # Header
+    st.markdown("""
+        <h2 style='color: white; margin-bottom: 1rem;'>💬 Trò chuyện với Trợ lý AI</h2>
+    """, unsafe_allow_html=True)
+    
+    # Lấy chat history
     if st.session_state.current_session_id:
         chat_history = db_manager.get_chat_history(st.session_state.current_session_id)
     else:
         chat_history = []
     
-    if chat_history:
-        # CSS trong một khối
-        st.markdown("""<style>
-        .simple-chat {
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            padding: 1rem;
-            max-height: 500px;
-            overflow-y: auto;
-            margin: 1rem 0;
-        }
-        .chat-msg {
-            margin: 0.8rem 0;
-            padding: 0.8rem;
-            border-radius: 6px;
-            color: #000000 !important;
-            font-size: 14px;
-            line-height: 1.4;
-        }
-        .msg-system { background: #f0f8ff; border-left: 3px solid #0066cc; }
-        .msg-user { background: #f5f5f5; border-left: 3px solid #666; }
-        .msg-result { background: #f0fff0; border-left: 3px solid #00aa00; }
-        .msg-error { background: #fff0f0; border-left: 3px solid #cc0000; }
-        .msg-summary { background: #fffaf0; border-left: 3px solid #ff8800; }
-        .msg-time { font-size: 11px; color: #666; margin-bottom: 4px; }
-        .msg-text { color: #000000 !important; font-weight: normal; }
-        </style>""", unsafe_allow_html=True)
-        
-        # Xây dựng chuỗi HTML KHÔNG có khoảng trắng giữa các thẻ
-        messages_html = []
-        messages_html.append('<div class="simple-chat">')
-        
-        for message in chat_history:
-            msg_type = message.get('type', 'system')
-            msg_text = message.get('message', '')
-            timestamp = datetime.fromtimestamp(message.get('timestamp', time.time())).strftime("%H:%M:%S")
-            
-            # Làm sạch văn bản tin nhắn
-            clean_msg_text = str(msg_text).replace('<', '&lt;').replace('>', '&gt;')
-            
-            # Lấy lớp CSS và biểu tượng
-            type_map = {
-                'system': ('msg-system', '🤖'),
-                'user': ('msg-user', '👤'),
-                'result': ('msg-result', '📊'),
-                'error': ('msg-error', '❌'),
-                'summary': ('msg-summary', '📈')
-            }
-            
-            css_class, icon = type_map.get(msg_type, ('msg-system', '💭'))
-            
-            # Xây dựng HTML tin nhắn - KHÔNG có khoảng trắng giữa các thẻ
-            message_html = f'<div class="chat-msg {css_class}"><div class="msg-time">{icon} {timestamp}</div><div class="msg-text">{clean_msg_text}</div></div>'
-            messages_html.append(message_html)
-        
-        messages_html.append('</div>')
-        
-        # Kết hợp không có bất kỳ dấu phân cách nào để tránh khoảng trắng
-        final_html = ''.join(messages_html)
-        
-        # Hiển thị dưới dạng khối đơn
-        st.markdown(final_html, unsafe_allow_html=True)
-        
-    else:
-        # Trạng thái trống
-        st.markdown("""<div style="text-align: center; padding: 2rem; background: #f9f9f9; border-radius: 8px; border: 1px dashed #ccc; color: #000000;"><h4 style="color: #000000;">💭 Chưa có tin nhắn nào</h4><p style="color: #666;">Bắt đầu bằng cách tải CV lên hoặc đặt câu hỏi!</p></div>""", unsafe_allow_html=True)
+    # Container chat với unique ID
+    chat_container_id = f"chat-container-{st.session_state.current_session_id}" if st.session_state.current_session_id else "chat-container-default"
     
-    # Đầu vào chat
-    if st.session_state.current_session_id:
-        st.markdown("---")
+    # Bắt đầu container
+    st.markdown(f'<div id="{chat_container_id}" class="enhanced-chat-container">', unsafe_allow_html=True)
+    
+    if chat_history:
+        # Render từng message riêng biệt
+        for i, message in enumerate(chat_history):
+            render_single_chat_message(message, i)
+    else:
+        # Empty state
+        st.markdown("""
+        <div class="empty-chat-state">
+            <div class="empty-chat-icon">💭</div>
+            <h4 style="color: #000000; margin-bottom: 0.5rem;">Chưa có cuộc trò chuyện nào</h4>
+            <p style="color: #666; margin: 0;">Bắt đầu bằng cách tải CV lên hoặc đặt câu hỏi!</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Đóng container
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Scroll button
+    st.markdown(f"""
+    <button class="scroll-to-bottom" onclick="scrollToBottomChat('{chat_container_id}')" title="Cuộn xuống dưới">
+        ↓
+    </button>
+    """, unsafe_allow_html=True)
+    
+    # JavaScript cho auto-scroll
+    render_chat_javascript(chat_container_id)
+    
+    # Chat input area
+    render_chat_input()
+
+def render_single_chat_message(message, index):
+    """Render một message riêng biệt"""
+    try:
+        msg_type = message.get('type', 'system')
+        msg_text = str(message.get('message', ''))
+        timestamp = datetime.fromtimestamp(message.get('timestamp', time.time())).strftime("%H:%M:%S")
+        sender = message.get('sender', 'system')
         
-        # Khu vực đầu vào
-        user_question = st.text_input(
-            "💬 Hỏi về ứng viên hoặc CV:",
-            placeholder="VD: Hãy cho tôi biết về kinh nghiệm của ứng viên hàng đầu",
-            key="chat_input"
+        # Escape HTML để tránh XSS
+        clean_msg_text = (msg_text
+                         .replace('&', '&amp;')
+                         .replace('<', '&lt;')
+                         .replace('>', '&gt;')
+                         .replace('"', '&quot;')
+                         .replace("'", '&#x27;'))
+        
+        # Map message types
+        type_config = {
+            'system': {'class': 'msg-system', 'icon': '🤖'},
+            'user': {'class': 'msg-user', 'icon': '👤'},
+            'result': {'class': 'msg-result', 'icon': '📊'},
+            'error': {'class': 'msg-error', 'icon': '❌'},
+            'summary': {'class': 'msg-summary', 'icon': '📈'}
+        }
+        
+        config = type_config.get(msg_type, type_config['system'])
+        
+        # Render message
+        st.markdown(f"""
+        <div class="chat-message {config['class']}" data-index="{index}">
+            <div class="msg-time">{config['icon']} {timestamp}</div>
+            <div class="msg-content">{clean_msg_text}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    except Exception as e:
+        logger.error(f"Error rendering message {index}: {e}")
+        # Fallback message
+        st.markdown(f"""
+        <div class="chat-message msg-error">
+            <div class="msg-time">❌ {datetime.now().strftime("%H:%M:%S")}</div>
+            <div class="msg-content">Lỗi hiển thị tin nhắn</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+def render_chat_javascript(container_id):
+    """Render JavaScript cho chat functionality"""
+    st.markdown(f"""
+    <script>
+    // Auto scroll to bottom function
+    function scrollToBottomChat(containerId) {{
+        const container = document.getElementById(containerId);
+        if (container) {{
+            container.scrollTo({{
+                top: container.scrollHeight,
+                behavior: 'smooth'
+            }});
+        }}
+    }}
+    
+    // Auto scroll when page loads
+    document.addEventListener('DOMContentLoaded', function() {{
+        setTimeout(function() {{
+            scrollToBottomChat('{container_id}');
+        }}, 500);
+    }});
+    
+    // Auto scroll on new content
+    window.addEventListener('load', function() {{
+        setTimeout(function() {{
+            scrollToBottomChat('{container_id}');
+        }}, 300);
+    }});
+    
+    // Observe container for new messages
+    const chatContainer = document.getElementById('{container_id}');
+    if (chatContainer) {{
+        const observer = new MutationObserver(function(mutations) {{
+            let hasNewContent = false;
+            mutations.forEach(function(mutation) {{
+                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {{
+                    hasNewContent = true;
+                }}
+            }});
+            
+            if (hasNewContent) {{
+                setTimeout(function() {{
+                    scrollToBottomChat('{container_id}');
+                }}, 100);
+            }}
+        }});
+        
+        observer.observe(chatContainer, {{ 
+            childList: true, 
+            subtree: true 
+        }});
+        
+        // Handle scroll button visibility
+        chatContainer.addEventListener('scroll', function() {{
+            const scrollButton = document.querySelector('.scroll-to-bottom');
+            if (scrollButton) {{
+                const isAtBottom = chatContainer.scrollHeight - chatContainer.scrollTop <= chatContainer.clientHeight + 50;
+                scrollButton.style.opacity = isAtBottom ? '0.3' : '0.8';
+            }}
+        }});
+    }}
+    
+    // Force scroll after Streamlit rerun
+    setTimeout(function() {{
+        scrollToBottomChat('{container_id}');
+    }}, 1000);
+    </script>
+    """, unsafe_allow_html=True)
+
+def render_chat_input():
+    """Render khu vực input chat"""
+    if not st.session_state.current_session_id:
+        return
+    
+    st.markdown("---")
+    
+    # CSS cho input area
+    st.markdown("""
+    <style>
+    .chat-input-section {
+        background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+        border: 2px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+    }
+    
+    .stTextInput input {
+        border: 2px solid #e2e8f0 !important;
+        border-radius: 12px !important;
+        padding: 12px 16px !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        transition: all 0.3s ease !important;
+        background: #ffffff !important;
+        color: #1f2937 !important;
+    }
+    
+    .stTextInput input:focus {
+        border-color: #3b82f6 !important;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+        outline: none !important;
+    }
+    
+    .stTextInput input::placeholder {
+        color: #9ca3af !important;
+        font-style: italic !important;
+    }
+    
+    .quick-suggestions-section {
+        margin-top: 1rem;
+        padding: 1rem;
+        background: #f8fafc;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+    }
+    
+    .suggestion-button {
+        margin: 0.25rem;
+        padding: 0.5rem 0.75rem;
+        background: white;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        color: #374151;
+        font-size: 0.85rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: inline-block;
+    }
+    
+    .suggestion-button:hover {
+        background: #f3f4f6;
+        border-color: #3b82f6;
+        color: #2563eb;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Input container
+    st.markdown('<div class="chat-input-section">', unsafe_allow_html=True)
+    
+    # Placeholder suggestions
+    placeholder_suggestions = [
+        "VD: Hãy cho tôi biết về kinh nghiệm của ứng viên hàng đầu",
+        "VD: So sánh 3 ứng viên tốt nhất",
+        "VD: Ứng viên nào có kỹ năng Python mạnh nhất?",
+        "VD: Tóm tắt điểm mạnh và yếu của từng ứng viên",
+        "VD: Ai phù hợp nhất cho vị trí Senior Developer?"
+    ]
+    
+    import random
+    current_placeholder = random.choice(placeholder_suggestions)
+    
+    # Chat input
+    user_question = st.text_input(
+        "💬 Hỏi về ứng viên hoặc CV:",
+        placeholder=current_placeholder,
+        key="chat_input_main",
+        help="Nhấn Enter để gửi tin nhắn hoặc Shift+Enter để xuống dòng"
+    )
+    
+    # Buttons row
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        if st.button("📤 Gửi", type="primary", use_container_width=True, key="send_chat_btn"):
+            if user_question.strip():
+                handle_chat_query_enhanced(user_question.strip())
+                st.rerun()
+    
+    with col2:
+        if st.button("🧹 Xóa chat", use_container_width=True, key="clear_chat_btn"):
+            if st.session_state.current_session_id:
+                if db_manager.clear_chat_history(st.session_state.current_session_id):
+                    st.success("✅ Đã xóa lịch sử chat!")
+                    st.rerun()
+                else:
+                    st.error("❌ Lỗi xóa chat!")
+    
+    # Quick action buttons (nếu có kết quả)
+    if st.session_state.session_state and st.session_state.session_state.get('final_results'):
+        with col3:
+            if st.button("👥 Top ứng viên", use_container_width=True, key="quick_top_btn"):
+                handle_chat_query_enhanced("Ai là 3 ứng viên hàng đầu và tại sao họ nổi bật? Hãy phân tích chi tiết điểm mạnh của từng người.")
+                st.rerun()
+        
+        with col4:
+            if st.button("📊 Phân tích", use_container_width=True, key="quick_analysis_btn"):
+                handle_chat_query_enhanced("Phân tích chi tiết tất cả kết quả đánh giá, so sánh ưu nhược điểm các ứng viên và đưa ra khuyến nghị tuyển dụng cụ thể.")
+                st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Quick suggestions (nếu có kết quả)
+    if st.session_state.session_state and st.session_state.session_state.get('final_results'):
+        render_quick_suggestions()
+
+def render_quick_suggestions():
+    """Render quick suggestions"""
+    st.markdown("""
+        <style>
+        * [data-testid="expander-header"],
+        * [data-testid="expander-header"] *,
+        .stExpander * {
+            color: white !important;
+        }
+
+        /* Hover effect */
+        * [data-testid="expander-header"]:hover,
+        * [data-testid="expander-header"]:hover * {
+            color: #ff4444 !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+    with st.expander("💡 Câu hỏi gợi ý", expanded=False):
+        suggestions = [
+            "Ứng viên nào có kinh nghiệm lâu năm nhất?",
+            "So sánh kỹ năng của top 3 ứng viên",
+            "Ứng viên nào cần đào tạo thêm và về lĩnh vực gì?",
+            "Phân tích điểm mạnh chung của các ứng viên đạt yêu cầu",
+            "Đề xuất mức lương phù hợp cho từng ứng viên top",
+            "Ứng viên nào phù hợp làm team lead?",
+            "Tạo câu hỏi phỏng vấn cho ứng viên tốt nhất",
+            "Đánh giá khả năng teamwork của các ứng viên"
+        ]
+        
+        cols = st.columns(2)
+        for i, suggestion in enumerate(suggestions):
+            col_idx = i % 2
+            with cols[col_idx]:
+                if st.button(
+                    f"💭 {suggestion}", 
+                    key=f"suggestion_btn_{i}", 
+                    use_container_width=True,
+                    help=f"Hỏi: {suggestion}"
+                ):
+                    handle_chat_query_enhanced(suggestion)
+                    st.rerun()
+
+def handle_chat_query_enhanced(question: str):
+    """Xử lý chat query với improvements"""
+    try:
+        if not st.session_state.current_session_id:
+            st.error("❌ Không có phiên hoạt động. Vui lòng tạo phiên mới trước.")
+            return
+        
+        if not question.strip():
+            st.warning("⚠️ Vui lòng nhập câu hỏi.")
+            return
+        
+        # Lưu tin nhắn người dùng
+        cv_workflow.add_chat_message_to_session(
+            st.session_state.current_session_id,
+            'user',
+            question,
+            'user'
         )
         
-        col1, col2, col3, col4 = st.columns(4)
+        # Kiểm tra dữ liệu đánh giá
+        if not st.session_state.session_state or not st.session_state.session_state.get('final_results'):
+            cv_workflow.add_chat_message_to_session(
+                st.session_state.current_session_id,
+                'system',
+                "🤖 Tôi chưa có dữ liệu đánh giá nào để phân tích. Vui lòng tải lên và đánh giá một số CV trước khi đặt câu hỏi! 📁✨"
+            )
+            return
         
-        with col1:
-            if st.button("Gửi", type="primary", use_container_width=True):
-                if user_question.strip():
-                    handle_chat_query(user_question.strip())
-                    st.rerun()
+        # Tạo context và generate response
+        session_data = st.session_state.session_state
+        results = session_data.get('final_results', {})
+        job_description = session_data.get('job_description', '')
         
-        with col2:
-            if st.button("🧹 Xóa", use_container_width=True):
-                if st.session_state.current_session_id:
-                    db_manager.clear_chat_history(st.session_state.current_session_id)
-                    st.success("Đã xóa chat!")
-                    st.rerun()
+        context = create_chat_context(results, job_description, question)
         
-        # Nút nhanh
-        if st.session_state.session_state and st.session_state.session_state.get('final_results'):
-            with col3:
-                if st.button("👥 Top ứng viên", use_container_width=True):
-                    handle_chat_query("Ai là 3 ứng viên hàng đầu và tại sao?")
-                    st.rerun()
+        # Show progress while generating
+        with st.spinner("🤖 AI đang phân tích và chuẩn bị câu trả lời..."):
+            try:
+                response = generate_chat_response(context, question)
+                
+                if response and response.strip():
+                    # Lưu phản hồi AI
+                    cv_workflow.add_chat_message_to_session(
+                        st.session_state.current_session_id,
+                        'result',
+                        f"🤖 {response}",
+                        'assistant'
+                    )
+                else:
+                    # Phản hồi trống
+                    cv_workflow.add_chat_message_to_session(
+                        st.session_state.current_session_id,
+                        'error',
+                        "❌ Xin lỗi, tôi không thể tạo ra câu trả lời phù hợp. Vui lòng thử đặt câu hỏi khác.",
+                        'system'
+                    )
+                    
+            except Exception as e:
+                logger.error(f"Error generating chat response: {e}")
+                error_msg = "❌ Xin lỗi, tôi gặp sự cố khi xử lý câu hỏi của bạn. Vui lòng thử lại sau."
+                cv_workflow.add_chat_message_to_session(
+                    st.session_state.current_session_id,
+                    'error',
+                    error_msg,
+                    'system'
+                )
+        
+    except Exception as e:
+        logger.error(f"Error in handle_chat_query_enhanced: {e}")
+        st.error(f"❌ Có lỗi xảy ra: {str(e)}")
+
+def create_chat_context(results: Dict, job_description: str, question: str) -> str:
+    """Tạo context cho AI - Improved version"""
+    try:
+        all_evaluations = results.get('all_evaluations', [])
+        
+        # Enhanced context với thông tin chi tiết hơn
+        context = f"""
+        THÔNG TIN PHIÊN ĐÁNH GIÁ CV:
+        
+        MÔ TẢ CÔNG VIỆC:
+        {job_description}
+        
+        TỔNG QUAN KẾT QUẢ:
+        - Tổng số CV đã đánh giá: {results.get('total_cvs', 0)}
+        - Số ứng viên đạt yêu cầu: {results.get('qualified_count', 0)}
+        - Điểm trung bình: {results.get('average_score', 0):.2f}/10
+        - Tỷ lệ đạt yêu cầu: {results.get('summary', {}).get('qualification_rate', 0):.1f}%
+        - Điểm cao nhất: {results.get('summary', {}).get('best_score', 0):.2f}/10
+        - Điểm thấp nhất: {results.get('summary', {}).get('worst_score', 0):.2f}/10
+        
+        CHI TIẾT CÁC ỨNG VIÊN (Sắp xếp theo điểm từ cao xuống thấp):
+        """
+        
+        # Thêm thông tin chi tiết từng ứng viên
+        for i, candidate in enumerate(all_evaluations[:15], 1):  # Giới hạn 15 ứng viên
+            filename = candidate.get('filename', f'Ứng viên {i}')
+            score = candidate.get('score', 0)
+            qualified = "✅ ĐẠT YÊU CẦU" if candidate.get('is_qualified', False) else "❌ KHÔNG ĐẠT"
             
-            with col4:
-                if st.button("📊 Tóm tắt", use_container_width=True):
-                    handle_chat_query("Cho tôi một bản tóm tắt tất cả kết quả đánh giá")
-                    st.rerun()
+            context += f"\n--- ỨNG VIÊN {i}: {filename} ---"
+            context += f"\n• Điểm tổng: {score:.1f}/10"
+            context += f"\n• Kết quả: {qualified}"
+            
+            # Thêm thông tin đánh giá chi tiết
+            eval_text = candidate.get('evaluation_text', '')
+            if eval_text:
+                try:
+                    eval_data = json.loads(eval_text)
+                    if isinstance(eval_data, dict):
+                        # Điểm chi tiết
+                        criteria = eval_data.get('Các tiêu chí', {})
+                        if criteria:
+                            context += f"\n• Điểm phù hợp: {criteria.get('Điểm phù hợp', 0)}/10"
+                            context += f"\n• Điểm kinh nghiệm: {criteria.get('Điểm kinh nghiệm', 0)}/10"
+                            context += f"\n• Điểm kỹ năng: {criteria.get('Điểm kĩ năng', 0)}/10"
+                            context += f"\n• Điểm học vấn: {criteria.get('Điểm giáo dục', 0)}/10"
+                        
+                        # Điểm mạnh
+                        strengths = eval_data.get('Điểm mạnh', [])
+                        if strengths:
+                            context += f"\n• Điểm mạnh: {', '.join(strengths[:3])}"
+                        
+                        # Điểm yếu
+                        weaknesses = eval_data.get('Điểm yếu', [])
+                        if weaknesses:
+                            context += f"\n• Điểm cần cải thiện: {', '.join(weaknesses[:2])}"
+                        
+                        # Tổng kết
+                        summary = eval_data.get('Tổng kết', '')
+                        if summary:
+                            context += f"\n• Tổng kết: {summary[:200]}..."
+                            
+                except json.JSONDecodeError:
+                    # Fallback nếu không parse được JSON
+                    context += f"\n• Nhận xét: {eval_text[:150]}..."
+            
+            # Thêm một phần văn bản CV cho câu hỏi chi tiết
+            extracted_text = candidate.get('extracted_text', '')
+            if extracted_text and len(question) > 30:  # Chỉ thêm cho câu hỏi dài
+                context += f"\n• Thông tin CV: {extracted_text[:300]}..."
+            
+            context += "\n"
+        
+        # Thêm gợi ý phân tích
+        context += f"""
+        
+        CÂU HỎI CẦN TRẢ LỜI: {question}
+        
+        LƯU Ý CHO AI:
+        - Hãy trả lời dựa trên dữ liệu thực tế ở trên
+        - Sử dụng tên file CV để nhận diện ứng viên
+        - Đưa ra phân tích so sánh khi cần thiết
+        - Cung cấp thông tin cụ thể, có số liệu
+        - Đề xuất hành động cụ thể cho nhà tuyển dụng
+        - Trả lời bằng tiếng Việt, chuyên nghiệp và dễ hiểu
+        """
+        
+        return context
+        
+    except Exception as e:
+        logger.error(f"Error creating chat context: {e}")
+        return f"""
+        MÔ TẢ CÔNG VIỆC: {job_description}
+        
+        TỔNG QUAN: Có {results.get('total_cvs', 0)} CV được đánh giá với điểm trung bình {results.get('average_score', 0):.1f}/10
+        
+        CÂU HỎI: {question}
+        
+        Lưu ý: Có lỗi khi tạo context chi tiết, vui lòng trả lời dựa trên thông tin cơ bản.
+        """
+
+def generate_chat_response(context: str, question: str) -> str:
+    """Generate AI response với error handling tốt hơn"""
+    try:
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        if not openai_api_key:
+            return "❌ Khóa API OpenAI chưa được cấu hình. Vui lòng kiểm tra cài đặt môi trường."
+        
+        client = OpenAI(api_key=openai_api_key)
+        
+        # Enhanced prompt
+        system_prompt = """
+        Bạn là một chuyên gia tư vấn tuyển dụng AI với hơn 15 năm kinh nghiệm. 
+        Bạn có khả năng phân tích sâu sắc về ứng viên và đưa ra lời khuyên chuyên nghiệp.
+        
+        NGUYÊN TẮC TRẢ LỜI:
+        1. Luôn dựa trên dữ liệu thực tế được cung cấp
+        2. Đưa ra phân tích so sánh khi có nhiều ứng viên
+        3. Cung cấp số liệu cụ thể (điểm, tỷ lệ, xếp hạng)
+        4. Đề xuất hành động cụ thể cho nhà tuyển dụng
+        5. Sử dụng tên file CV để nhận diện ứng viên
+        6. Trả lời ngắn gọn nhưng đầy đủ thông tin
+        7. Sử dụng tiếng Việt chuyên nghiệp
+        8. Highlight những điểm quan trọng
+        
+        ĐỊNH DẠNG TRẢ LỜI:
+        - Sử dụng bullet points khi cần thiết
+        - Bold các thông tin quan trọng
+        - Đưa ra khuyến nghị cuối cùng rõ ràng
+        """
+        
+        user_prompt = f"""
+        {context}
+        
+        Hãy trả lời câu hỏi một cách chuyên nghiệp, cụ thể và hữu ích.
+        """
+        
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=1000,  # Tăng token limit
+            temperature=0.7,
+            top_p=0.9
+        )
+        
+        generated_response = response.choices[0].message.content.strip()
+        
+        if not generated_response:
+            return "❌ Không thể tạo phản hồi. Vui lòng thử đặt câu hỏi khác."
+        
+        return generated_response
+        
+    except Exception as e:
+        logger.error(f"Error generating chat response: {e}")
+        
+        # Detailed error messages
+        if "rate_limit" in str(e).lower():
+            return "⏱️ API đang quá tải. Vui lòng đợi một chút và thử lại."
+        elif "authentication" in str(e).lower():
+            return "🔑 Lỗi xác thực API. Vui lòng kiểm tra khóa API."
+        elif "timeout" in str(e).lower():
+            return "⏰ Kết nối bị timeout. Vui lòng thử lại."
+        else:
+            return f"❌ Lỗi hệ thống: {str(e)[:100]}... Vui lòng thử lại sau."
 
 def render_file_upload_area():
     """Giao diện tải tệp nâng cao"""
@@ -1932,104 +2597,6 @@ def handle_chat_query(question: str):
             'system'
         )
 
-def create_chat_context(results: Dict, job_description: str, question: str) -> str:
-    """Tạo ngữ cảnh cho phản hồi chat AI"""
-    try:
-        all_evaluations = results.get('all_evaluations', [])
-        
-        # Tạo ngữ cảnh tóm tắt
-        context = f"""
-        MÔ TẢ CÔNG VIỆC:
-        {job_description}
-        
-        TÓM TẮT KẾT QUẢ ĐÁNH GIÁ:
-        - Tổng CV: {results.get('total_cvs', 0)}
-        - Ứng viên đạt yêu cầu: {results.get('qualified_count', 0)}
-        - Điểm trung bình: {results.get('average_score', 0):.1f}/10
-        - Tỷ lệ đạt: {results.get('summary', {}).get('qualification_rate', 0):.1f}%
-        
-        CHI TIẾT ỨNG VIÊN:
-        """
-        
-        # Thêm thông tin ứng viên
-        for i, candidate in enumerate(all_evaluations[:10], 1):  # Giới hạn 10 ứng viên hàng đầu
-            filename = candidate.get('filename', f'Ứng viên {i}')
-            score = candidate.get('score', 0)
-            qualified = "✅ Đạt yêu cầu" if candidate.get('is_qualified', False) else "❌ Không đạt yêu cầu"
-            
-            context += f"\n{i}. {filename} - Điểm: {score:.1f}/10 - {qualified}"
-            
-            # Thêm chi tiết đánh giá nếu có
-            eval_text = candidate.get('evaluation_text', '')
-            if eval_text:
-                try:
-                    eval_data = json.loads(eval_text)
-                    if isinstance(eval_data, dict):
-                        summary = eval_data.get('Tổng kết', '')
-                        strengths = eval_data.get('Điểm mạnh', [])
-                        if summary:
-                            context += f"\n   Tóm tắt: {summary}"
-                        if strengths:
-                            context += f"\n   Điểm mạnh: {', '.join(strengths[:3])}"
-                except:
-                    pass
-            
-            # Thêm văn bản CV đã trích xuất cho các truy vấn chi tiết
-            extracted_text = candidate.get('extracted_text', '')
-            if extracted_text and len(question) > 50:  # Cho các câu hỏi chi tiết
-                context += f"\n   Nội dung CV: {extracted_text[:500]}..."
-        
-        return context
-        
-    except Exception as e:
-        logger.error(f"Lỗi tạo ngữ cảnh chat: {e}")
-        return f"Mô tả công việc: {job_description}\nDữ liệu đánh giá có sẵn nhưng lỗi xử lý chi tiết."
-
-def generate_chat_response(context: str, question: str) -> str:
-    """Tạo phản hồi AI cho truy vấn chat"""
-    try:
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-        if not openai_api_key:
-            return "Khóa API OpenAI chưa được cấu hình. Vui lòng kiểm tra cài đặt môi trường."
-        
-        client = OpenAI(api_key=openai_api_key)
-        
-        prompt = f"""
-        Bạn là một trợ lý AI chuyên gia tư vấn tuyển dụng. Bạn có quyền truy cập vào dữ liệu đánh giá CV và nên cung cấp thông tin hữu ích, chuyên nghiệp về ứng viên.
-        
-        NGỮ CẢNH:
-        {context}
-        
-        CÂU HỎI NGƯỜI DÙNG: {question}
-        
-        Vui lòng cung cấp phản hồi hữu ích, chuyên nghiệp dựa trên dữ liệu đánh giá. Nếu câu hỏi về ứng viên cụ thể, hãy sử dụng dữ liệu thực tế của họ. Hãy súc tích nhưng đầy đủ thông tin.
-        
-        Hướng dẫn:
-        - Hãy chuyên nghiệp và hữu ích
-        - Sử dụng dữ liệu cụ thể từ các đánh giá khi có
-        - Nếu được hỏi về ứng viên theo tên, hãy tìm kiếm qua nội dung CV
-        - Cung cấp thông tin chi tiết có thể thực hiện cho các quyết định tuyển dụng
-        - Giữ phản hồi súc tích nhưng đầy đủ
-        - Sử dụng tiếng Việt để trả lời
-        - Luôn trả lời bằng tiếng Việt
-        """
-        
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "Bạn là trợ lý AI tuyển dụng chuyên nghiệp. Cung cấp thông tin hữu ích dựa trên dữ liệu đánh giá CV. Luôn trả lời bằng tiếng Việt."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=800,
-            temperature=0.7
-        )
-        
-        return response.choices[0].message.content.strip()
-        
-    except Exception as e:
-        logger.error(f"Lỗi tạo phản hồi chat: {e}")
-        return f"Xin lỗi, tôi gặp lỗi khi xử lý câu hỏi của bạn: {str(e)}"
-
 def start_chat_evaluation_with_streaming(uploaded_files: List):
     """Bắt đầu đánh giá với tích hợp cơ sở dữ liệu"""
     try:
@@ -2125,7 +2692,6 @@ def render_detailed_results(results: Dict):
         * [data-testid="expander-header"] *,
         .stExpander * {
             color: white !important;
-            font-weight: 700 !important;
         }
 
         /* Hover effect */
