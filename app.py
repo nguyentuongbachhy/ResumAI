@@ -621,7 +621,6 @@ st.markdown("""
     }
     
     .file-card {
-        color: white;
         background: var(--bg-primary);
         font-weight: 500;
         padding: 2rem;
@@ -669,7 +668,7 @@ st.markdown("""
     
     .file-card .file-name {
         font-weight: 600;
-        color: var(--text-primary);
+        color: white;
         margin-bottom: 0.75rem;
         word-break: break-word;
         font-size: 0.95rem;
@@ -1985,7 +1984,13 @@ def start_chat_evaluation_with_streaming(uploaded_files: List):
         
         # Sử dụng quy trình làm việc đã cập nhật với tích hợp cơ sở dữ liệu
         cv_workflow_instance = get_cached_workflow()
-        
+        st.markdown("""
+            <style>
+                .stSpinner > div > div {
+                    color: white !important;
+                }
+            </style>
+        """, unsafe_allow_html=True)
         with st.spinner("🚀 Đang bắt đầu quy trình đánh giá AI..."):
             result = cv_workflow_instance.run_evaluation(
                 st.session_state.current_session_id,
